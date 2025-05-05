@@ -19,7 +19,7 @@ use Twig\Environment;
 
 use function Symfony\Component\String\u;
 
-#[AsCommand('survos:code:console', 'Generate a Symfony 7.3 console class')]
+#[AsCommand('survos:make:command', 'Generate a Symfony 7.3 console command')]
 final class CodeCommand
 {
 
@@ -32,7 +32,9 @@ final class CodeCommand
 
     private function getTypes(): array
     {
-        return [Type::String, Type::Int, Type::Bool, Type::Array];
+        $types =  [Type::String, Type::Int, Type::Bool, Type::Array];
+        $types = array_merge($types, array_map(fn(string $type) => '?' . $type, $types));
+        return $types;
 
     }
 
@@ -42,7 +44,7 @@ final class CodeCommand
         #[Argument(description: 'command name, e.g. app:do-something')] string $name = '',
         #[Argument(description: 'description')] ?string                        $description = null, // prompt if null
         #[Option(description: 'overwrite the existing file')] bool             $force = true,
-        #[Option(description: 'add the project dir to the constructor')] bool  $projectDir = true,
+        #[Option(description: 'add the project dir to the constructor')] bool  $projectDir = false,
         #[Option(description: 'namespace')] string                             $ns = "App\\Command"
     ): int
     {
@@ -102,14 +104,14 @@ final class CodeCommand
         while ($argument = $this->askForNextArgument($io, $method)) {
             $body .= $this->addBodyBoilerplate($argument, "Argument");
             $method->addBody($body);
-            $io->writeln((string)$method);
         }
 
         while ($option = $this->askForNextOption($io, $method)) {
             $body .= $this->addBodyBoilerplate($option, "Option");
             $method->addBody($body);
-            $io->writeln((string)$method);
         }
+        $body = $io->ask('__invoke body', $body);
+
 
         $body .= "return Command::SUCCESS;";
         $method->setBody($body);
@@ -140,19 +142,20 @@ final class CodeCommand
             return null;
         };
 
-        $parameter = $method->addParameter($fieldName);
-
-        if ($default = $io->ask('Enter default value (blank for none)')) {
-            $parameter->setDefaultValue($default);
-        }
-        if ($fieldType = $this->askType($io, 'Enter argument type (eg. <fg=yellow>string</> by default)')) {
-            $parameter->setType($fieldType);
-        }
-
         $attributeOptions = [];
         if ($description = $io->ask('Argument description (blank for none)')) {
             $attributeOptions['description'] = $description;
         }
+
+        $parameter = $method->addParameter($fieldName);
+
+        if ($fieldType = $this->askType($io, 'Enter argument type (eg. <fg=yellow>string</> by default)')) {
+            $parameter->setType($fieldType);
+        }
+        if ($default = $io->ask('Enter default value (blank for none)')) {
+            $parameter->setDefaultValue($default);
+        }
+
         $parameter->addAttribute(Argument::class, $attributeOptions);
         return $fieldName;
     }
@@ -183,13 +186,14 @@ final class CodeCommand
         return $type;
     }
 
-    private function getDefault(string $fieldType, mixed $default = null)
+    private function getDefault(string $fieldType, mixed $default = null): mixed
     {
         return match ($fieldType) {
             'string' => sprintf("'%s'", $default),
             'bool' => $default ? 'true' : 'false',
+            '?bool' => 'null',
             'int' => $default,
-            default => null, // str_starts_with('?', $fieldType) ? null: dd($fieldType)
+            default => 'null', // str_starts_with('?', $fieldType) ? null: dd($fieldType)
         };
     }
 
@@ -228,9 +232,19 @@ PHP, $option, $text, $option, $option);
         }
         $parameter = $method->addParameter($fieldName);
 
+        $argumentAttributeValues = [];
+        if ($description = $io->ask('Option description (blank for none)')) {
+            $argumentAttributeValues['description'] = $description;
+        }
+        if ($shortCut = $io->ask('Enter shortcut for the option (blank for none)')) {
+            $argumentAttributeValues['shortcut'] = $shortCut;
+        }
+
+
         if ($fieldType = $this->askType($io, 'Enter option type (eg. <fg=yellow>string</> by default)')) {
             $parameter->setType($fieldType);
         }
+
         $default = $this->getDefault($fieldType);
         $default = $io->ask('Enter default value (required)', $default, function (?string $default) {
 //            if ($default === 'null') {
@@ -242,14 +256,6 @@ PHP, $option, $text, $option, $option);
         }
 
         $parameter->setDefaultValue($default);
-        $argumentAttributeValues = [];
-        if ($description = $io->ask('Option description (blank for none)')) {
-            $argumentAttributeValues['description'] = $description;
-        }
-        if ($shortCut = $io->ask('Enter shortcut for the option (blank for none)')) {
-            $argumentAttributeValues['shortcut'] = $shortCut;
-        }
-
         $parameter->addAttribute(Option::class, $argumentAttributeValues);
         return $fieldName;
     }
