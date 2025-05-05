@@ -15,9 +15,8 @@ class SurvosCodeBundle extends AbstractBundle
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         $builder->autowire(CodeCommand::class)
-            ->setArgument('$projectDir', new Reference('kernel.project_dir'))
+            ->setArgument('$projectDir', '%kernel.project_dir%')
             ->addTag('console.command')
-            ->addTag('container.service_subscriber')
         ;
 
     }

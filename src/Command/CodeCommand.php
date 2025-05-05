@@ -13,6 +13,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Nette\PhpGenerator\Literal;
 use Nette\PhpGenerator\PhpNamespace;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Contracts\Service\ServiceMethodsSubscriberTrait;
+use Symfony\Contracts\Service\ServiceSubscriberInterface;
 use Twig\Environment;
 
 use function Symfony\Component\String\u;
@@ -20,13 +22,18 @@ use function Symfony\Component\String\u;
 #[AsCommand('survos:code:console', 'Generate a Symfony 7.3 console class')]
 final class CodeCommand
 {
-    private const TYPES = [Type::String, Type::Int, Type::Bool, Type::Array];
 
     public function __construct(
 //        #[Autowire('%kernel.project_dir%/src/Command')]
-        private string $dir,
+        private string $projectDir,
     )
     {
+    }
+
+    private function getTypes(): array
+    {
+        return [Type::String, Type::Int, Type::Bool, Type::Array];
+
     }
 
 
@@ -45,7 +52,7 @@ final class CodeCommand
         }
 
         $namespace = new PhpNamespace($ns);
-        $commandDir = $this->dir;
+        $commandDir = $this->projectDir . '/src/Command';
         if (!file_exists($commandDir)) {
             mkdir($commandDir, 0777, true);
         }
@@ -106,7 +113,7 @@ final class CodeCommand
 
         $body .= "return Command::SUCCESS;";
         $method->setBody($body);
-        $filename = $this->dir . '/' . $commandClass . '.php';
+        $filename = $commandDir . '/' . $commandClass . '.php';
         $io->writeln((string)$namespace);
         file_put_contents($filename, '<?php' . "\n\n" . $namespace);
         $io->success(self::class . ' success. ' . $filename);
@@ -155,16 +162,17 @@ final class CodeCommand
         $type = null;
         while (null === $type) {
             $question = new Question($message, 'string');
-            $question->setAutocompleterValues(self::TYPES);
+            $question->setAutocompleterValues($this->getTypes());
             $type = $io->askQuestion($question);
+            $types = $this->getTypes();
 
             if ('?' === $type) {
-                $io->note('Allowed types: ' . implode(',', self::TYPES));
+                $io->note('Allowed types: ' . implode(',', $types));
                 $io->writeln('');
 
                 $type = null;
-            } elseif (!\in_array($type, self::TYPES)) {
-                $io->note('Allowed types: ' . implode(',', self::TYPES));
+            } elseif (!\in_array($type, $types)) {
+                $io->note('Allowed types: ' . implode(',', $types));
                 $io->error(sprintf('Invalid type "%s".', $type));
                 $io->writeln('');
 
