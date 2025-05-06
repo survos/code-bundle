@@ -10,7 +10,9 @@
     "symfony/config": "^7.2",
     "symfony/dependency-injection": "^7.2",
     "symfony/http-kernel": "^7.2",
-    "twig/twig": "^3.4"
+    "twig/twig": "^3.4",
+    "nette/php-generator": "^4.1",
+    "roave/better-reflection": "^6.57"
   },
   "autoload": {
     "psr-4": {
@@ -25,9 +27,7 @@
     "symfony/twig-bundle": "^7.2",
     "symfony/var-dumper": "^7.2",
     "symfony/console": "^7.3",
-    "symfony/routing": "^7.2",
-    "nette/php-generator": "^4.1",
-    "roave/better-reflection": "^6.57"
+    "symfony/routing": "^7.2"
   },
   "minimum-stability": "beta",
   "version": "2.0.0"
