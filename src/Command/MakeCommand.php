@@ -13,6 +13,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Nette\PhpGenerator\Literal;
 use Nette\PhpGenerator\PhpNamespace;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\String\Slugger\AsciiSlugger;
 use Symfony\Contracts\Service\ServiceMethodsSubscriberTrait;
 use Symfony\Contracts\Service\ServiceSubscriberInterface;
 use Twig\Environment;
@@ -20,7 +21,7 @@ use Twig\Environment;
 use function Symfony\Component\String\u;
 
 #[AsCommand('survos:make:command', 'Generate a Symfony 7.3 console command')]
-final class CodeCommand
+final class MakeCommand
 {
 
     public function __construct(
@@ -71,6 +72,7 @@ final class CodeCommand
             $name = $io->ask('command name, e.g. app:do-something');
         }
         $shortName = u($name)->replace('app:', '')->title(true)->replace(':', '')->toString();
+        $shortName = str_replace('-', '', $shortName);
         $commandClass = $shortName . "Command";
 
         if (!$description) {
@@ -113,7 +115,7 @@ final class CodeCommand
         $body = $io->ask('__invoke body', $body);
 
 
-        $body .= "return Command::SUCCESS;";
+        $body .= '$io->success(self::class . " success.");' . "\nreturn Command::SUCCESS;";
         $method->setBody($body);
         $filename = $commandDir . '/' . $commandClass . '.php';
         $io->writeln((string)$namespace);
