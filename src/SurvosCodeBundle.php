@@ -3,6 +3,8 @@
 namespace Survos\CodeBundle;
 
 use Survos\CodeBundle\Command\MakeCommand;
+use Survos\CodeBundle\Command\MakeController;
+use Survos\CodeBundle\Service\GeneratorService;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -14,10 +16,15 @@ class SurvosCodeBundle extends AbstractBundle
 {
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-        $builder->autowire(MakeCommand::class)
+
+        array_map(fn(string $class) => $builder->autowire($class)
             ->setArgument('$projectDir', '%kernel.project_dir%')
             ->addTag('console.command')
-        ;
+        ,  [MakeCommand::class, MakeController::class]);
+
+        $builder->autowire(GeneratorService::class)
+            ->setPublic(true);
+
 
     }
 

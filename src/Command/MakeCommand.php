@@ -157,8 +157,9 @@ final class MakeCommand
         if ($default = $io->ask('Enter default value (blank for none)')) {
             $parameter->setDefaultValue($default);
         }
+        // these MUST be in the same order as the attribute, e.g. description first
 
-        $parameter->addAttribute(Argument::class, $attributeOptions);
+        $parameter->addAttribute(Argument::class, array_values($attributeOptions));
         return $fieldName;
     }
 
@@ -229,6 +230,7 @@ PHP, $option, $text, $option, $option);
         Method       $method,
     ): ?string
     {
+
         if (!$fieldName = $this->askForNextParameter($io, $method, 'Enter the option name')) {
             return null;
         }
@@ -244,6 +246,10 @@ PHP, $option, $text, $option, $option);
 
 
         if ($fieldType = $this->askType($io, 'Enter option type (eg. <fg=yellow>string</> by default)')) {
+            if ('?' === $fieldType) {
+                $io->note('Allowed types: https://github.com/symfony/symfony/pull/59602#issuecomment-2849377828');
+            }
+            // for help: https://github.com/symfony/symfony/pull/59602#issuecomment-2849377828
             $parameter->setType($fieldType);
         }
 
@@ -258,7 +264,8 @@ PHP, $option, $text, $option, $option);
         }
 
         $parameter->setDefaultValue($default);
-        $parameter->addAttribute(Option::class, $argumentAttributeValues);
+//        $parameter->addAttribute(Option::class, $argumentAttributeValues);
+        $parameter->addAttribute(Option::class, array_values($argumentAttributeValues));
         return $fieldName;
     }
 }
