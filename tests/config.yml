@@ -1,0 +1,7 @@
+framework:
+    secret: "test"
+    test: ~
+
+# php format?  auto-override?
+#survos_generator:
+#    branding: TestBrand

@@ -21,7 +21,7 @@ class SurvosCodeBundle extends AbstractBundle
     {
 
         $builder->autowire(GeneratorService::class)
-            ->setArgument('$doctrine', new Reference('doctrine'))
+            ->setArgument('$doctrine', new Reference('doctrine', ContainerBuilder::IGNORE_ON_INVALID_REFERENCE))
             ->setAutoconfigured(true) // bad practice! Better to inject
             ->setPublic(true);
 
