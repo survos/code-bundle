@@ -35,6 +35,7 @@
     "league/csv": "^9.23",
     "survos/workflow-helper-bundle": "^1.5"
   },
+  "version": "1.5.602",
   "config": {
     "allow-plugins": {
       "endroid/installer": false
