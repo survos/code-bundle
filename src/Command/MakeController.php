@@ -23,23 +23,23 @@ use function Symfony\Component\String\u;
 #[AsCommand('survos:make:controller', 'Generate a controller method on an existing controller class')]
 // class must exist before the method.
 //
-final class MakeController
+final class MakeController extends BaseMaker
 {
-    public function __construct(
-        private GeneratorService $generatorService,
-        #[Autowire('%kernel.project_dir%')] private string $projectDir,
-    )
-    {
-    }
+//    public function __construct(
+//        private GeneratorService $generatorService,
+//        #[Autowire('%kernel.project_dir%')] private string $projectDir,
+//    )
+//    {
+//    }
 
     public function __invoke(
         SymfonyStyle     $io,
         #[Argument(description: 'Controller class name, e.g. App')]
         string $name,
         #[Option(description: 'controller route name (e.g. admin_do_something)', shortcut: 'r')]
-        ?string $routeName = '',
+        ?string $routeName = null,
         #[Option('method name, default to routeName', shortcut: 'm')]
-        ?string $method = '',
+        ?string $method = null,
 
         #[Option(description: 'make an invokable controller', shortcut: 'inv')] // save i for interactive
         bool   $invokable = true,
@@ -69,17 +69,30 @@ final class MakeController
         if (!u($name)->endsWith('Controller')) {
             $name .= 'Controller';
         }
+        [$class, $ns, $filename]  = $this->getClass($namespace, $name);
 
         // for twig stuff, see https://github.com/zenstruck/twig-service-bundle
-        // @todo: instead of generating the controller, read it and append/replace the new method
-        $ns = $this->generatorService->generateController($name, $namespace, $routeName, $path, $security, $cache, $templateName, $classRoute);
+        // generate controller method. Ignore if it already exists (@todo: delete first)
+        $ns = $this->generatorService->generateController(
+            $class, $ns,
+            $name, $namespace, $routeName, $path,
+            $security, $cache, $templateName, $classRoute);
 
         $class = $ns->getClasses()[array_key_first($ns->getClasses())];
-        if ($routeName) {
-            $this->generatorService->addMethod($class, $routeName);
-            $this->createTemplate($name, $routeName, $templateName, $force);
+
+        if (!$class->hasMethod('__construct')) {
+            $class->addMethod('__construct');
         }
 
+        if ($routeName) {
+            $this->generatorService->addMethod($class, $routeName, $templateName);
+            if ($templateName) {
+                // @todo: library of templates
+                $this->createTemplate($name, $routeName, $templateName, $force);
+            }
+        }
+
+        // we already have this, because we get the existing methods.
         $path = $this->generatorService->namespaceToPath($namespace, $this->projectDir);
         $filename = $path . '/';
         foreach (explode(':', $name) as $part) {
@@ -87,11 +100,12 @@ final class MakeController
         }
         $filename .= '.php';
 
-        if (!file_exists($filename) || $force) {
-            file_put_contents($filename, '<?php ' . "\n\n" . $ns);
-        } else {
-            throw new \Exception("$filename already exists");
-        }
+        $io->writeln($ns);
+        file_put_contents($filename, '<?php ' . "\n\n" . $ns);
+//        if (!file_exists($filename) || $force) {
+//        } else {
+//            throw new \Exception("$filename already exists");
+//        }
 
         $io->success(sprintf('controller %s generated.', $filename));
         return Command::SUCCESS;

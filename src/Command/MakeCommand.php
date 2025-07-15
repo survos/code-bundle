@@ -4,6 +4,7 @@ namespace Survos\CodeBundle\Command;
 
 use Nette\PhpGenerator\Method;
 use Nette\PhpGenerator\Type;
+use Survos\CodeBundle\Service\GeneratorService;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -25,6 +26,7 @@ final class MakeCommand
 {
 
     public function __construct(
+        private GeneratorService $generatorService,
 //        #[Autowire('%kernel.project_dir%/src/Command')]
         private string $projectDir,
     )
@@ -42,15 +44,16 @@ final class MakeCommand
 
     public function __invoke(
         SymfonyStyle                                                           $io,
-        #[Argument(description: 'command name, e.g. app:do-something')] string $name = '',
-        #[Argument(description: 'description')] ?string                        $description = null, // prompt if null
-        #[Option(description: 'overwrite the existing file')] bool             $force = true,
+        #[Argument('command name, e.g. app:do-something')] string $name = '',
+        #[Argument('command description')] ?string                        $description = null, // prompt if null
+        #[Option('overwrite the existing command class')] bool             $force = true,
+        // @todo: move to make:constructor
         #[Option(description: 'add the project dir to the constructor')] bool  $projectDir = false,
         #[Option(description: 'namespace')] string                             $ns = "App\\Command"
     ): int
     {
         if (!class_exists(PhpNamespace::class)) {
-            $io->error("Missing dependency:\n\ncomposer req nette/php-generator");
+            $io->error("Missing dependency:\n\ncomposer require nette/php-generator");
             return Command::FAILURE;
         }
 
@@ -155,6 +158,12 @@ final class MakeCommand
             $parameter->setType($fieldType);
         }
         if ($default = $io->ask('Enter default value (blank for none)')) {
+            if ($fieldType === 'int') {
+                $default = (int)$default;
+            }
+            if ($fieldType === 'bool') {
+                $default = (bool)$default;
+            }
             $parameter->setDefaultValue($default);
         }
         // these MUST be in the same order as the attribute, e.g. description first
