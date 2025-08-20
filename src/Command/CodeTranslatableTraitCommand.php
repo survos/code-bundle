@@ -5,9 +5,12 @@ namespace Survos\CodeBundle\Command;
 
 use PhpParser\Node;
 use PhpParser\Node\AttributeGroup;
+use PhpParser\Node\Name\FullyQualified;
+use PhpParser\Node\Name;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\Namespace_;
 use PhpParser\Node\Stmt\Property;
+use PhpParser\Node\Stmt\TraitUse;
 use PhpParser\ParserFactory;
 use PhpParser\PrettyPrinter\Standard as Pretty;
 use Psr\Log\LoggerInterface;
@@ -19,6 +22,11 @@ use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
+/**
+ * Finds #[Translatable] in entities and in any used traits.
+ * Generates <Entity>TranslationsTrait only for fields *owned by the entity*.
+ * Trait-owned translatable fields are reported (cannot be refactored from the entity safely).
+ */
 #[AsCommand('code:translatable:trait', 'Generate <Entity>TranslationsTrait and update entities (scan-all if no path)')]
 final class CodeTranslatableTraitCommand
 {
@@ -35,9 +43,12 @@ final class CodeTranslatableTraitCommand
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Argument('Optional path to entity file or directory; when omitted, scan src/Entity')] ?string $path = null,
-        #[Option('Trait namespace base (defaults to <EntityNs>\\Translations)')] ?string $traitNsBase = null,
-        #[Option('Dry-run: only show diffs / do not write')] bool $dryRun = false,
+        #[Argument('Optional path to entity file or directory; when omitted, scan src/Entity')]
+        ?string $path = null,
+        #[Option('Trait namespace base (defaults to <EntityNs>\\Translations)')]
+        ?string $traitNsBase = null,
+        #[Option('Dry-run: only show diffs / do not write')]
+        bool $dryRun = false,
     ): int {
         $this->reportLocales($io);
 
@@ -62,40 +73,70 @@ final class CodeTranslatableTraitCommand
             $entityFqcn = $nsName.'\\'.$className;
             $entityDir  = \dirname($entityFile);
 
-            [$fields, $fieldNames] = $this->scanTranslatableFieldsFromAst($classNode);
-            $hasTranslatables = !empty($fieldNames);
-            $this->logger->info('Entity scan', ['entity'=>$entityFqcn, 'fields'=>$fieldNames]);
+            // 1) Collect entity-owned translatables (public props marked #[Translatable] in the entity file)
+            [$ownFields, $ownNames] = $this->scanEntityOwnedTranslatables($classNode);
 
-            $traitNamespace = ($traitNsBase ?? $nsName.'\\Translations');
-            $traitName      = $className.'TranslationsTrait';
-            $traitFqcn      = $traitNamespace.'\\'.$traitName;
-            $traitPath      = $entityDir.'/Translations/'.$traitName.'.php';
+            // 2) Collect translatables from used traits (recursive)
+            $traitMap = $this->collectTraitFqcns($classNode, $nsName);
+            [$traitFields, $byTrait] = $this->scanTranslatablesFromTraits($traitMap);
 
-            if ($hasTranslatables) {
+            $hasAnyTranslatables = !empty($ownNames) || !empty($traitFields);
+
+            $this->logger->info('Entity scan', [
+                'entity'       => $entityFqcn,
+                'ownFields'    => array_values($ownNames),
+                'traitFields'  => array_keys($traitFields),
+                'traitSources' => $byTrait,
+            ]);
+
+            // Report to user
+            $io->section($entityFqcn);
+            if ($ownNames) {
+                $io->writeln(' • Will convert entity-owned fields: <info>'.implode(', ', $ownNames).'</info>');
+            }
+            if ($traitFields) {
+                $io->writeln(' • Skipping trait-owned fields (cannot refactor from entity):');
+                foreach ($byTrait as $traitFqcn => $names) {
+                    $io->writeln('    - '.$traitFqcn.': '.implode(', ', $names));
+                }
+                $io->writeln('   (These still work with Babel; hooks not required.)');
+            }
+            if (!$hasAnyTranslatables) {
+                $this->logger->info('No translatables; skipping entity update', ['entity'=>$entityFqcn]);
+                $io->writeln(' • No translatables found. Skipped.');
+                continue;
+            }
+
+            // Only generate trait for OWN fields
+            if ($ownNames) {
+                $traitNamespace = ($traitNsBase ?? $nsName.'\\Translations');
+                $traitName      = $className.'TranslationsTrait';
+                $traitFqcn      = $traitNamespace.'\\'.$traitName;
+                $traitPath      = $entityDir.'/Translations/'.$traitName.'.php';
+
                 $this->traitGen->generateTrait(
                     traitFqcn:  $traitFqcn,
-                    fields:     $fields,
+                    fields:     $ownFields,
                     targetPath: $traitPath
                 );
                 $totalTraits++;
                 $io->writeln(sprintf(' • Trait <info>%s</info> → <comment>%s</comment>', $traitFqcn, $this->rel($traitPath)));
-            } else {
-                $this->logger->info('No translatables; skipping entity update', ['entity'=>$entityFqcn]);
-                continue; // <= IMPORTANT: do not touch this entity if no translatables
-            }
 
-            $updated = $this->updater->updateEntity(
-                entityPath:       $entityFile,
-                entityFqcn:       $entityFqcn,
-                traitFqcn:        $traitFqcn,
-                fieldNames:       $fieldNames,
-                hasTranslatables: true,
-                dryRun:           $dryRun,
-                backup:           false
-            );
-            if ($updated) {
-                $totalUpdated++;
-                $io->writeln(sprintf(' • Updated entity <info>%s</info>', $this->rel($entityFile)));
+                $updated = $this->updater->updateEntity(
+                    entityPath:       $entityFile,
+                    entityFqcn:       $entityFqcn,
+                    traitFqcn:        $traitFqcn,
+                    fieldNames:       $ownNames,
+                    hasTranslatables: true,
+                    dryRun:           $dryRun,
+                    backup:           false
+                );
+                if ($updated) {
+                    $totalUpdated++;
+                    $io->writeln(sprintf(' • Updated entity <info>%s</info>', $this->rel($entityFile)));
+                }
+            } else {
+                $io->writeln(' • No entity-owned fields to convert. Nothing to generate.');
             }
         }
 
@@ -165,44 +206,150 @@ final class CodeTranslatableTraitCommand
         return [$nsName, $className, $class];
     }
 
-    private function scanTranslatableFieldsFromAst(Class_ $class): array
+    /**
+     * Scan only entity-owned public properties with #[Translatable]
+     * Returns [fieldSpecs, names]
+     */
+    private function scanEntityOwnedTranslatables(Class_ $class): array
     {
         $fields = []; $names = [];
         foreach ($class->stmts as $stmt) {
             if (!$stmt instanceof Property) continue;
             if (!($stmt->flags & Class_::MODIFIER_PUBLIC)) continue;
 
-            $has = false;
-            foreach ($stmt->attrGroups as $grp)
-                foreach ($grp->attrs as $attr) {
-                    $n = $attr->name->toString();
-                    if ($n === 'Translatable' || $n === 'Survos\\BabelBundle\\Attribute\\Translatable') { $has = true; break; }
-                }
-            if (!$has) continue;
+            if (!$this->hasTranslatableAttr($stmt->attrGroups)) continue;
 
-            $hook = [];
-            foreach ($stmt->attrGroups as $grp)
-                foreach ($grp->attrs as $attr) {
-                    $n = $attr->name->toString();
-                    if ($n === 'Column' || $n === 'Doctrine\\ORM\\Mapping\\Column' || str_ends_with($n, '\\Column')) continue;
-                    $parts = [];
-                    foreach ($attr->args as $arg) {
-                        $k = $arg->name?->toString();
-                        $v = $this->pp->prettyPrintExpr($arg->value);
-                        $parts[] = $k ? ($k.': '.$v) : $v;
-                    }
-                    if ($n === 'Translatable' || $n === 'Survos\\BabelBundle\\Attribute\\Translatable') $hook[] = '#[Translatable'.($parts?'('.implode(', ',$parts).')':'').']';
-                    elseif ($n === 'Groups' || $n === 'Symfony\\Component\\Serializer\\Attribute\\Groups') $hook[] = '#[Groups'.($parts?'('.implode(', ',$parts).')':'').']';
-                    else $hook[] = '#['.$n.($parts?'('.implode(', ',$parts).')':'').']';
-                }
+            $hookAttrs = $this->copyNonColumnAttributes($stmt->attrGroups);
 
             foreach ($stmt->props as $prop) {
                 $name = $prop->name->toString();
-                $fields[]  = ['name'=>$name,'hookAttrs'=>$hook,'columnAttr'=>null];
+                $fields[]  = ['name'=>$name,'hookAttrs'=>$hookAttrs,'columnAttr'=>null];
                 $names[]   = $name;
             }
         }
         return [$fields, $names];
+    }
+
+    /** Collect trait FQCNs from "use FooTrait;" entries (best-effort resolution) */
+    private function collectTraitFqcns(Class_ $class, string $nsName): array
+    {
+        $traits = [];
+        foreach ($class->stmts as $stmt) {
+            if ($stmt instanceof TraitUse) {
+                foreach ($stmt->traits as $nameNode) {
+                    $traits[] = $this->normalizeFqcn($nameNode, $nsName);
+                }
+            }
+        }
+        return $traits;
+    }
+
+    /**
+     * Parse trait files and collect public #[Translatable] properties.
+     * Returns [flatList, byTraitMap]
+     *
+     * @param list<string> $traitFqcns
+     * @return array{0:array<string,true>,1:array<string,list<string>>}
+     */
+    private function scanTranslatablesFromTraits(array $traitFqcns): array
+    {
+        $byTrait = [];
+        $flat    = [];
+
+        $parser  = (new ParserFactory())->createForHostVersion();
+
+        foreach ($traitFqcns as $fqcn) {
+            $file = $this->resolveFqcnToFile($fqcn);
+            if (!$file || !is_file($file)) continue;
+
+            $code = @file_get_contents($file);
+            if ($code === false) continue;
+
+            $ast = $parser->parse($code);
+            if (!$ast) continue;
+
+            // Find first trait node
+            $traitNode = null; $nsName = null;
+            foreach ($ast as $stmt) {
+                if ($stmt instanceof Namespace_) {
+                    $nsName = $stmt->name?->toString();
+                    foreach ($stmt->stmts as $s) {
+                        if ($s instanceof \PhpParser\Node\Stmt\Trait_) { $traitNode = $s; break 2; }
+                    }
+                }
+            }
+            if (!$traitNode) continue;
+
+            foreach ($traitNode->stmts as $stmt) {
+                if (!$stmt instanceof Property) continue;
+                if (!($stmt->flags & Class_::MODIFIER_PUBLIC)) continue;
+                if (!$this->hasTranslatableAttr($stmt->attrGroups)) continue;
+
+                foreach ($stmt->props as $prop) {
+                    $name = $prop->name->toString();
+                    $flat[$name] = true;
+                    $byTrait[$fqcn][] = $name;
+                }
+            }
+        }
+
+        return [$flat, $byTrait];
+    }
+
+    /** True if any AttributeGroup contains #[Translatable] */
+    private function hasTranslatableAttr(array $groups): bool
+    {
+        foreach ($groups as $grp) {
+            foreach ($grp->attrs as $attr) {
+                $n = $attr->name->toString();
+                if ($n === 'Translatable' || $n === 'Survos\\BabelBundle\\Attribute\\Translatable') return true;
+            }
+        }
+        return false;
+    }
+
+    /** Copy all non-Column attributes into the generated hook */
+    private function copyNonColumnAttributes(array $groups): array
+    {
+        $hook = [];
+        foreach ($groups as $grp) {
+            foreach ($grp->attrs as $attr) {
+                $n = $attr->name->toString();
+                if ($n === 'Column' || $n === 'Doctrine\\ORM\\Mapping\\Column' || str_ends_with($n, '\\Column')) continue;
+
+                $parts = [];
+                foreach ($attr->args as $arg) {
+                    $k = $arg->name?->toString();
+                    $v = $this->pp->prettyPrintExpr($arg->value);
+                    $parts[] = $k ? ($k.': '.$v) : $v;
+                }
+                $hook[] = '#['.$n.($parts?'('.implode(', ',$parts).')':'').']';
+            }
+        }
+        return $hook;
+    }
+
+    private function normalizeFqcn(Name|FullyQualified $name, string $nsName): string
+    {
+        $fq = $name->toString();
+        if ($name->isFullyQualified()) return $fq;
+        // best effort: resolve relative to entity namespace
+        if (!str_starts_with($fq, '\\')) {
+            return $nsName.'\\'.$fq;
+        }
+        return ltrim($fq, '\\');
+    }
+
+    private function resolveFqcnToFile(string $fqcn): ?string
+    {
+        // PSR-4 best effort: App\ → src/
+        if (str_starts_with($fqcn, 'App\\')) {
+            $rel = str_replace('\\', DIRECTORY_SEPARATOR, substr($fqcn, 4)).'.php';
+            $file = $this->projectDir.DIRECTORY_SEPARATOR.'src'.DIRECTORY_SEPARATOR.$rel;
+            return $file;
+        }
+        // Add more roots if needed
+        return null;
     }
 
     private function rel(string $abs): string
