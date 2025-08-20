@@ -1,5 +1,12 @@
 @todo
 
+The bundle requires 2 classes, but you have to explicitly request them because of being in the --dev environment.  
+
+```bash
+composer require --dev survos/code-bundle nikic/php-parser nette/php-generator
+```
+
+
 ```bash
 symfony new --webapp playground && cd playground
 composer req survos/code-bundle --dev

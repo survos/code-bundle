@@ -25,10 +25,10 @@ class GeneratorService
 {
     //    private PropertyAccessor $propertyAccessor;
     public function __construct(
-        #[Autowire('%kernel.project_dir%')] private ?string $projectDir,
-        #[AutowireIterator('workflow.state_machine')] private iterable $workflows=[],
-        #[AutowireIterator('doctrine.repository_service')] private iterable $repositories=[],
-        private ?ManagerRegistry $doctrine=null,
+        #[Autowire('%kernel.project_dir%')] private ?string                 $projectDir,
+        #[AutowireIterator('workflow.state_machine')] private iterable      $workflows = [],
+        #[AutowireIterator('doctrine.repository_service')] private iterable $repositories = [],
+        private ?ManagerRegistry                                            $doctrine = null,
     )
     {
     }
@@ -44,6 +44,7 @@ class GeneratorService
 //        }
 
     }
+
     public function getRepositories(): iterable
     {
         foreach ($this->repositories as $repository) {
@@ -89,35 +90,36 @@ class GeneratorService
     }
 
 
-
     public function generateService(
         string $className,
         string $namespaceName = 'App\\Controller',
-    ) {
+    )
+    {
         $namespace = new PhpNamespace($namespaceName);
         $class = $namespace->addClass($className);
-        $class
-//            ->setExtends(AbstractController::class)
+        $class//            ->setExtends(AbstractController::class)
         ;
 
         return $namespace;
 
 
     }
+
     public function generateController(
-        ClassType $class,
+        ClassType    $class,
         PhpNamespace $namespace,
-        string $controllerName,
-        string $namespaceName = 'App\\Controller',
-        ?string $routeName = null,
-        ?string $route = null,
-        ?string $security = null,
-        ?string $cache = null,
-        ?string $templateName = null,
-        ?string $classRoute = null
+        string       $controllerName,
+        string       $namespaceName = 'App\\Controller',
+        ?string      $routeName = null,
+        ?string      $routePath = null,
+        ?string      $security = null,
+        ?string      $cache = null,
+        ?string      $templateName = null,
+        ?string      $classRoute = null
 
     ): PhpNamespace
     {
+        $routePath ??= "/$routeName";
 
 //        if (empty($namespace)) {
 //            $namespace = 'App\\Controller';
@@ -171,13 +173,13 @@ class GeneratorService
     }
 
 
-
-    public function addMethod(ClassType $class,
-                              string    $routeName, // 'app_do_something'
-                              ?string    $templateName = null,
-                              ?string   $route = null, // '/do-something'
-                              ?string    $methodName = null, // function doSomething()
-                              bool      $security = false // IsGranted('ROLE_ADMIN')
+    public function addControllerMethod(
+        ClassType $class,
+        string   $routeName, // 'app_do_something'
+        ?string  $templateName = null,
+        ?string  $route = null, // '/do-something'
+        ?string  $methodName = null, // function doSomething()
+        bool     $security = false, // IsGranted('ROLE_ADMIN')
     )
     {
         if (empty($methodName)) {
@@ -187,6 +189,7 @@ class GeneratorService
         if (empty($route)) {
             $route = "/$routeName";
         }
+        dd($route);
 
         if (empty($templateName)) {
             $templatePrefix = u($class->getName())->replace('Controller', '')->lower();
@@ -196,18 +199,19 @@ class GeneratorService
             $templateName .= ".html.twig";
         }
 
-        $templatePath = 'templates/' . $templateName;
-        if (!file_exists($templatePath)) {
-            $dir = pathinfo($templatePath, PATHINFO_DIRNAME);
-            if (!file_exists($dir)) {
-                mkdir($dir, recursive: true);
-            }
-
-            file_put_contents(getcwd() . '/' . $templatePath, 'template content');
-        }
+//        $templatePath = 'templates/' . $templateName;
+//        if (!file_exists($templatePath)) {
+//            $dir = pathinfo($templatePath, PATHINFO_DIRNAME);
+//            if (!file_exists($dir)) {
+//                mkdir($dir, recursive: true);
+//            }
+//            assert($templateContent !== null);
+//            file_put_contents(getcwd() . '/' . $templatePath, $templateContent);
+//        }
 
         if ($class->hasMethod($methodName)) {
-            return;
+            // @todo: custom exceptions
+            throw new \Exception("Method $methodName already exists");
         }
 
         $method = $class->hasMethod($methodName)

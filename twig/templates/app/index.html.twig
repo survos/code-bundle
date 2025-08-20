@@ -1,0 +1,54 @@
+{% extends 'base.html.twig' %}
+{% block body %}
+    <h1>Barcode Bundle Demo</h1>
+    {{ products|length }} Products
+    <table class="table">
+        <thead>
+        <tr>
+            <th>Product</th>
+            <th>ID</th>
+            {% for shortName, generator in generators %}
+                <th>{{ shortName }}</th>
+            {% endfor %}
+        </tr>
+        </thead>
+        <tbody>
+        {% for product in products %}
+            <tr>
+                <td>{{ product.name }}
+                    <sup><code>{{ product.id }}</code></sup>
+                </td>
+                {% for shortName, generatorData in generators %}
+                    <td>
+
+                        {% set barcodeData = barcode(product.name, generatorClass=shortName) %}
+                        {% if generatorData.image_format %}
+                            <img title="{{ generatorData.image_format }}" src='data:{{ generatorData.image_format }};base64,{{ barcodeData }}' />
+                        {% else %}
+                            {{ barcodeData|raw }}
+                        {% endif %}
+                        <br />{{ product.name }}
+                    </td>
+                {% endfor %}
+
+            </tr>
+
+        {% endfor %}
+
+        </tbody>
+
+    </table>
+
+    {{ component('divider') }}
+
+    <h3>Extension Check</h3>
+    <ul>
+    {% for ext, isLoaded in extensions %}
+        <li><span class="text-{{ isLoaded ? 'success' : 'danger' }}">{{ ext }}, {{ isLoaded ? 'yes' : 'no' }}</span> </li>
+    {% endfor %}
+    </ul>
+
+    <h3>
+        Note: this is running Symfony {{ symfonyVersion }}
+    </h3>
+{% endblock %}

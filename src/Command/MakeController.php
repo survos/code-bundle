@@ -11,8 +11,10 @@ use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
+use Symfony\Component\Finder\Finder;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
@@ -20,7 +22,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 use function Symfony\Component\String\u;
 
 // removed until nullable string options are allowed again
-#[AsCommand('survos:make:controller', 'Generate a controller method on an existing controller class')]
+#[AsCommand('code:controller', 'Generate a controller method on an existing controller class')]
 // class must exist before the method.
 //
 final class MakeController extends BaseMaker
@@ -35,7 +37,7 @@ final class MakeController extends BaseMaker
     public function __invoke(
         SymfonyStyle     $io,
         #[Argument(description: 'Controller class name, e.g. App')]
-        string $name,
+        ?string $name=null,
         #[Option(description: 'controller route name (e.g. admin_do_something)', shortcut: 'r')]
         ?string $routeName = null,
         #[Option('method name, default to routeName', shortcut: 'm')]
@@ -44,14 +46,16 @@ final class MakeController extends BaseMaker
         #[Option(description: 'make an invokable controller', shortcut: 'inv')] // save i for interactive
         bool   $invokable = true,
         #[Option(name: 'template', shortcut: 't', description: 'template name with path')]
-        string $templateName = '',
+        ?string $templateName = null,
+        #[Option("from the template library", shortcut: 'f')]
+        ?string $from = null,
         #[Option(description:  'secure route with a role')]
         string $security = '',
         #[Option(description: 'add a cache attribute', shortcut: 'c')]
         string $cache = '', // @todo: add timeout?
 
         #[Option(description: 'path, defaults to /[routeName]', shortcut: 'p')]
-        string $path = '',
+        ?string $routePath = null,
 // @todo: move to make/update:class controller
         #[Option(description: 'class route, e.g. /product', shortcut: 'cr')]
         string $classRoute = '',
@@ -66,6 +70,10 @@ final class MakeController extends BaseMaker
         if (empty($namespace)) {
             $namespace = 'App\\Controller';
         }
+
+        if (!$name) {
+            $name = $io->ask('name of a controller, e.g. App will create/update AppController.php');
+        }
         if (!u($name)->endsWith('Controller')) {
             $name .= 'Controller';
         }
@@ -75,8 +83,9 @@ final class MakeController extends BaseMaker
         // generate controller method. Ignore if it already exists (@todo: delete first)
         $ns = $this->generatorService->generateController(
             $class, $ns,
-            $name, $namespace, $routeName, $path,
-            $security, $cache, $templateName, $classRoute);
+            $name, $namespace, $routeName, $routePath,
+            $security, $cache, $templateName, $classRoute
+        );
 
         $class = $ns->getClasses()[array_key_first($ns->getClasses())];
 
@@ -84,11 +93,34 @@ final class MakeController extends BaseMaker
             $class->addMethod('__construct');
         }
 
+        if (!$routeName) {
+            $routeName = $io->ask('Route name (e.g. admin_do_something)');
+        }
+
         if ($routeName) {
-            $this->generatorService->addMethod($class, $routeName, $templateName);
-            if ($templateName) {
+
+            $this->generatorService->addControllerMethod($class,
+                $routeName,
+                $templateName,
+                route: $routePath);
+
+            if (!$from) {
+                $finder = new Finder();
+                $templates = [];
+                foreach ($finder->files()->in(__DIR__ . '/../../twig') as $file) {
+                    $description = fgets(fopen($file->getRealPath(), 'r'));
+                    $templates[$file->getFilenameWithoutExtension()] = $description;
+                    $map[$file->getFilenameWithoutExtension()] = $file->getRealPath();
+
+                }
+                $key = $io->askQuestion(new ChoiceQuestion('template name', $templates));
+                $from = $map[$key];
+            }
+            $content = file_get_contents($from);
+            if ($content) {
                 // @todo: library of templates
-                $this->createTemplate($name, $routeName, $templateName, $force);
+                $twigFilename = $this->createTemplate($name, $routeName, $templateName, $content, $force);
+                $io->success(sprintf('template %s generated.', $twigFilename));
             }
         }
 
@@ -114,12 +146,20 @@ final class MakeController extends BaseMaker
     private function createTemplate(string $controllerName,
                                     string $routeName,
                                     ?string $templateName=null,
-                                    bool $force = false)
+                                    ?string $content = null,
+                                    bool $force = false): ?string
     {
+        $path = null;
         if (empty($templateName)) {
             $templatePrefix = u($controllerName)->replace('Controller', '')->lower();
             $templateName = "$templatePrefix/$routeName";
         }
+
+        //$content must not be empty, otherwise we create an empty file
+        if (empty($content)) {
+            $content = "{# template for $controllerName::$routeName #}\n";
+        }
+
         if (!u($templateName)->endsWith('.html.twig')) {
             $templateName .= ".html.twig";
         }
@@ -131,14 +171,14 @@ final class MakeController extends BaseMaker
                 mkdir($dir, recursive: true);
             }
             // @todo: get template paths
-            $fn = __DIR__ . '/../../twig/symfony.html.twig';
-            assert(file_exists($fn), $fn);
-            $templateCode = file_get_contents($fn);
+//            $fn = __DIR__ . '/../../twig/symfony.html.twig';
+//            assert(file_exists($fn), $fn);
+//            $templateCode = file_get_contents($fn);
 
-            file_put_contents(getcwd() . '/' . $templatePath, $templateCode);
+            file_put_contents($path = getcwd() . '/' . $templatePath, $content);
         }
 
-        return Command::SUCCESS;
+        return $path;
 
     }
 
