@@ -67,8 +67,20 @@ final class CodeTranslatableTraitCommand
             $ast = $parser->parse($code);
             if (!$ast) { $this->logger->warning('Skip unparsable entity', ['file'=>$entityFile]); continue; }
 
-            [$nsName, $className, $classNode] = $this->findNamespaceAndClass($ast);
+            [$nsName, $className, $classNode, $kind] = $this->findNamespaceAndClass($ast);
             if (!$classNode || !$className || !$nsName) { continue; }
+
+// Skip interfaces entirely (they are not entities)
+            if ($kind === 'interface') {
+                $this->logger->info('Skipping interface', ['file' => $entityFile, 'fqcn' => $nsName.'\\'.$className]);
+                continue;
+            }
+
+            if ($kind === 'trait') {
+                $io->writeln(' • Found trait: reporting translatables only; no entity update.');
+                // fall through; your code already reports trait-owned fields but does not generate hooks
+            }
+
 
             $entityFqcn = $nsName.'\\'.$className;
             $entityDir  = \dirname($entityFile);
@@ -168,42 +180,61 @@ final class CodeTranslatableTraitCommand
     private function resolveTargets(?string $path): array
     {
         $targets = [];
+        $scan = function (string $root) use (&$targets): void {
+            if (!is_dir($root)) return;
+            $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $f) {
+                if (!$f->isFile() || $f->getExtension() !== 'php') continue;
+                $p = $f->getPathname();
+                if (str_contains($p, '/Translations/')) continue;
+                if (str_ends_with($p, 'Interface.php')) continue;   // <-- skip interfaces
+                $targets[] = $p;
+            }
+        };
+
         if ($path === null) {
-            $root = $this->projectDir.'/src/Entity';
-            if (is_dir($root)) {
-                $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS));
-                foreach ($it as $f) {
-                    if ($f->isFile() && $f->getExtension() === 'php') {
-                        if (str_contains($f->getPathname(), '/Translations/')) continue;
-                        $targets[] = $f->getPathname();
-                    }
-                }
-            }
-        } else {
-            if (is_dir($path)) {
-                $it = new \RecursiveIteratorIterator(new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS));
-                foreach ($it as $f) if ($f->isFile() && $f->getExtension() === 'php') $targets[] = $f->getPathname();
-            } elseif (is_file($path)) {
-                $targets[] = $path;
-            }
+            $scan($this->projectDir . '/src/Entity');
+        } elseif (is_dir($path)) {
+            $scan($path);
+        } elseif (is_file($path) && str_ends_with($path, '.php') && !str_ends_with($path, 'Interface.php')) {
+            $targets[] = $path;
         }
+
         sort($targets);
         return $targets;
     }
 
-    /** @return array{0:?string,1:?string,2:?Class_} */
+    /** @return array{0:?string,1:?string,2:Node\Stmt|null,3:?string} [ns, name, node, kind] */
     private function findNamespaceAndClass(array $ast): array
     {
-        $nsName = null; $className = null; $class = null;
+        $nsName = null; $name = null; $node = null; $kind = null;
+
         foreach ($ast as $stmt) {
             if ($stmt instanceof Namespace_) {
                 $nsName = $stmt->name?->toString();
                 foreach ($stmt->stmts as $s) {
-                    if ($s instanceof Class_) { $class = $s; $className = $s->name?->toString(); break; }
+                    if ($s instanceof \PhpParser\Node\Stmt\Class_) {
+                        $name = $s->name?->toString();
+                        $node = $s;
+                        $kind = 'class';
+                        break 2;
+                    }
+                    if ($s instanceof \PhpParser\Node\Stmt\Trait_) {
+                        $name = $s->name?->toString();
+                        $node = $s;
+                        $kind = 'trait';
+                        break 2;
+                    }
+                    if ($s instanceof \PhpParser\Node\Stmt\Interface_) {
+                        $name = $s->name?->toString();
+                        $node = $s;
+                        $kind = 'interface';
+                        break 2;
+                    }
                 }
             }
         }
-        return [$nsName, $className, $class];
+        return [$nsName, $name, $node, $kind];
     }
 
     /**
@@ -215,7 +246,8 @@ final class CodeTranslatableTraitCommand
         $fields = []; $names = [];
         foreach ($class->stmts as $stmt) {
             if (!$stmt instanceof Property) continue;
-            if (!($stmt->flags & Class_::MODIFIER_PUBLIC)) continue;
+            // we possible _could_ support non-public properties
+            if (!$stmt->isPublic()) continue;
 
             if (!$this->hasTranslatableAttr($stmt->attrGroups)) continue;
 
@@ -282,7 +314,7 @@ final class CodeTranslatableTraitCommand
 
             foreach ($traitNode->stmts as $stmt) {
                 if (!$stmt instanceof Property) continue;
-                if (!($stmt->flags & Class_::MODIFIER_PUBLIC)) continue;
+                if (!$stmt->isPublic()) continue;
                 if (!$this->hasTranslatableAttr($stmt->attrGroups)) continue;
 
                 foreach ($stmt->props as $prop) {

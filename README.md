@@ -1,4 +1,8 @@
-@todo
+# survos/code-bundle
+
+Generate PHP code for Symfony applications. Like maker-bundle, but with nette/php-generator
+
+
 
 The bundle requires 2 classes, but you have to explicitly request them because of being in the --dev environment.  
 

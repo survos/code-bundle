@@ -3,69 +3,99 @@ declare(strict_types=1);
 
 namespace Survos\CodeBundle\Service;
 
-use Doctrine\DBAL\Types\Types;
-use Doctrine\ORM\Mapping\Column;
 use Psr\Log\LoggerInterface;
-use Survos\BabelBundle\Attribute\Translatable;
-use Symfony\Component\Serializer\Attribute\Groups;
 
 /**
- * Emits a complete <Entity>TranslationsTrait file (namespace, uses, trait, backings, hooks).
- * We generate the whole file in a single pass to avoid partial writes/insertions.
+ * Generates/updates <Entity>TranslationsTrait.
+ *
+ * - First render: writes the full trait with all requested fields.
+ * - Subsequent runs: parses existing #[Translatable] properties and APPENDS ONLY the missing ones.
+ * - Never deletes or overwrites existing fields.
  */
 final class TranslatableTraitGenerator
 {
     public function __construct(private readonly LoggerInterface $logger) {}
 
     /**
-     * @param array<int, array{name:string, hookAttrs:string[], columnAttr?:string|null}> $fields
+     * @param array<int, array{name:string, hookAttrs:array, columnAttr:mixed}> $fields
      */
     public function generateTrait(string $traitFqcn, array $fields, string $targetPath): void
     {
-        [$nsName, $traitName] = $this->splitFqcn($traitFqcn);
+        // Dedupe input fields by name
+        $byName = [];
+        foreach ($fields as $f) {
+            $name = (string)($f['name'] ?? '');
+            if ($name === '') continue;
+            $byName[$name] ??= $f;
+        }
+        $fields = array_values($byName);
 
-        $this->logger->info('Generating translations trait (single-pass render)', [
+        if (!file_exists($targetPath)) {
+            $this->logger->info('Generating translations trait (initial render)', [
+                'fqcn'   => $traitFqcn,
+                'target' => $targetPath,
+                'fields' => array_column($fields, 'name'),
+            ]);
+            $this->writeNewTraitFile($traitFqcn, $fields, $targetPath);
+            return;
+        }
+
+        // Upsert: keep existing fields, append only new ones
+        $this->logger->info('Generating translations trait (upsert)', [
             'fqcn'   => $traitFqcn,
             'target' => $targetPath,
-            'fields' => array_column($fields, 'name'),
         ]);
 
-        // ensure directory
-        $dir = \dirname($targetPath);
-        if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
-            $this->logger->error('Failed to create trait directory', ['dir' => $dir]);
-            throw new \RuntimeException("Cannot create directory: $dir");
+        $existingCode  = (string)file_get_contents($targetPath);
+        $existingNames = $this->scanExistingHookNames($existingCode);
+
+        $toAppend = array_values(
+            array_filter($fields, fn(array $f) => !in_array($f['name'], $existingNames, true))
+        );
+
+        if ($toAppend === []) {
+            $this->logger->info('Trait up-to-date; nothing to append', [
+                'fqcn'     => $traitFqcn,
+                'existing' => $existingNames,
+            ]);
+            return;
         }
 
-        // build backings
-        $backings = '';
+        $this->logger->info('Appending new field(s) to trait', [
+            'fqcn'    => $traitFqcn,
+            'append'  => array_column($toAppend, 'name'),
+            'existing'=> $existingNames,
+        ]);
+
+        $updated = $this->appendBlocksBeforeClosingBrace($existingCode, $toAppend);
+        $this->ensureTraitHeaderImports($updated);
+
+        @mkdir(\dirname($targetPath), 0775, true);
+        file_put_contents($targetPath, $updated);
+        $this->logger->info('Trait appended', ['path' => $targetPath, 'bytes' => strlen($updated)]);
+    }
+
+    /* ======================= internals ======================= */
+
+    /**
+     * Render a complete trait (first time).
+     *
+     * @param array<int, array{name:string, hookAttrs:array, columnAttr:mixed}> $fields
+     */
+    private function writeNewTraitFile(string $traitFqcn, array $fields, string $targetPath): void
+    {
+        [$ns, $traitName] = $this->splitFqcn($traitFqcn);
+
+        $blocks = [];
         foreach ($fields as $f) {
-            $name = $f['name'];
-            $backings .= "    #[ORM\\Column(type: Types::TEXT, nullable: true)]\n";
-            $backings .= "    private ?string \${$name}Backing = null;\n\n";
+            $blocks[] = $this->renderHookBlock($f);
         }
 
-        // build hooks (attrs are already fully-qualified lines from the scanner)
-        $hooks = '';
-        foreach ($fields as $f) {
-            $name   = $f['name'];
-            $attrs  = $f['hookAttrs'] ?: ['#[\\Survos\\BabelBundle\\Attribute\\Translatable]'];
-            $joined = implode(' ', $attrs);
-            $ctx    = str_contains($joined, 'context:') ? 'null /* context via attribute */' : "'$name'";
-
-            foreach ($attrs as $a) { $hooks .= "    $a\n"; }
-            $hooks .= "    public ?string \${$name} {\n";
-            $hooks .= "        get => \$this->resolveTranslatable('{$name}', \$this->{$name}Backing, {$ctx});\n";
-            $hooks .= "        set => \$this->{$name}Backing = \$value;\n";
-            $hooks .= "    }\n\n";
-        }
-
-        // render full file
-        $src = <<<PHPFILE
+        $code = <<<PHP
 <?php
 declare(strict_types=1);
 
-namespace {$nsName};
+namespace {$ns};
 
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\DBAL\Types\Types;
@@ -74,24 +104,114 @@ use Symfony\Component\Serializer\Attribute\Groups;
 
 trait {$traitName}
 {
-{$backings}{$hooks}}
-PHPFILE;
+{$this->indent(implode("\n\n", $blocks), 4)}
+}
 
-        $ok = @file_put_contents($targetPath, $src);
-        if ($ok === false) {
-            $this->logger->error('Failed to write generated trait', ['path' => $targetPath]);
-            throw new \RuntimeException("Failed to write trait: $targetPath");
+PHP;
+
+        @mkdir(\dirname($targetPath), 0775, true);
+        file_put_contents($targetPath, $code);
+        $this->logger->info('Trait generated', ['path' => $targetPath, 'bytes' => strlen($code)]);
+    }
+
+    /**
+     * Return existing translatable hook property names in a trait file.
+     */
+    private function scanExistingHookNames(string $code): array
+    {
+        $names = [];
+        $re = '/\#\[\s*(?:Survos\\\\BabelBundle\\\\Attribute\\\\)?Translatable[^\]]*\]\s*public\s+[^\$]*\$(\w+)\s*\{/mi';
+        if (preg_match_all($re, $code, $m)) {
+            foreach ($m[1] as $n) $names[] = (string)$n;
+        }
+        return array_values(array_unique($names));
+    }
+
+    /**
+     * Append hook blocks before the final closing brace of the trait.
+     *
+     * @param array<int, array{name:string, hookAttrs:array, columnAttr:mixed}> $toAppend
+     */
+    private function appendBlocksBeforeClosingBrace(string $existing, array $toAppend): string
+    {
+        $blocks = [];
+        foreach ($toAppend as $f) {
+            $blocks[] = $this->renderHookBlock($f);
+        }
+        $insertion = "\n\n".$this->indent(implode("\n\n", $blocks), 4)."\n";
+
+        $pos = strrpos($existing, "}\n");
+        if ($pos === false) $pos = strrpos($existing, "}");
+        if ($pos === false) {
+            return rtrim($existing).$insertion."\n}\n";
         }
 
-        $this->logger->info('Trait generated', [
-            'path'  => $targetPath,
-            'bytes' => strlen($src),
-        ]);
+        return substr($existing, 0, $pos) . rtrim($insertion) . "\n}\n";
+    }
+
+    private function ensureTraitHeaderImports(string &$code): void
+    {
+        $need = [
+            'use Doctrine\ORM\Mapping as ORM;',
+            'use Doctrine\DBAL\Types\Types;',
+            'use Survos\BabelBundle\Attribute\Translatable;',
+            'use Symfony\Component\Serializer\Attribute\Groups;',
+        ];
+        foreach ($need as $use) {
+            if (strpos($code, $use) === false) {
+                $code = preg_replace(
+                    '/(\nnamespace\s+[^\;]+;\s*\R)/',
+                    "$1".$use."\n",
+                    $code,
+                    1
+                ) ?? $code;
+            }
+        }
+    }
+
+    /**
+     * Render one translatable hook block.
+     * NOTE: backing is **protected** so other trait methods (e.g. from BabelHooksTrait) can access it safely.
+     */
+    private function renderHookBlock(array $f): string
+    {
+        $name = (string)$f['name'];
+        $back = $name.'Backing';
+
+        $attrs = array_map('trim', array_values(array_filter((array)($f['hookAttrs'] ?? []), 'strlen')));
+        $hasTrans = false;
+        foreach ($attrs as $a) {
+            if (preg_match('/^\#\[\s*(?:Survos\\\\BabelBundle\\\\Attribute\\\\)?Translatable\b/', $a)) {
+                $hasTrans = true; break;
+            }
+        }
+        if (!$hasTrans) {
+            array_unshift($attrs, '#[Translatable]');
+        }
+        $attrLines = $attrs ? (implode("\n    ", $attrs)."\n    ") : '';
+
+        return <<<PHP
+#[ORM\Column(type: Types::TEXT, nullable: true)]
+protected ?string \${$back} = null;
+
+{$attrLines}public ?string \${$name} {
+    get => \$this->resolveTranslatable('{$name}', \$this->{$back}, '{$name}');
+    set => \$this->{$back} = \$value;
+}
+PHP;
     }
 
     private function splitFqcn(string $fqcn): array
     {
-        $p = strrpos($fqcn, '\\');
-        return $p === false ? ['', $fqcn] : [substr($fqcn, 0, $p), substr($fqcn, $p + 1)];
+        $fqcn = ltrim($fqcn, '\\');
+        $pos  = strrpos($fqcn, '\\');
+        if ($pos === false) return ['', $fqcn];
+        return [substr($fqcn, 0, $pos), substr($fqcn, $pos + 1)];
+    }
+
+    private function indent(string $s, int $spaces): string
+    {
+        $pad = str_repeat(' ', $spaces);
+        return preg_replace('/^/m', $pad, $s) ?? $s;
     }
 }

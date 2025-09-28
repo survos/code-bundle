@@ -2,14 +2,17 @@
 
 namespace Survos\CodeBundle;
 
+use Survos\CodeBundle\Command\CodeTranslatableCommand;
 use Survos\CodeBundle\Command\CodeTranslatableTraitCommand;
 use Survos\CodeBundle\Command\MakeCommand;
 use Survos\CodeBundle\Command\MakeConstructor;
 use Survos\CodeBundle\Command\MakeController;
 use Survos\CodeBundle\Command\MakeRelation;
 use Survos\CodeBundle\Command\MakeService;
+use Survos\CodeBundle\Service\DirectEntityTranslatableUpdater;
 use Survos\CodeBundle\Service\EntityTranslatableUpdater;
 use Survos\CodeBundle\Service\GeneratorService;
+use Survos\CodeBundle\Service\StrEntitiesScaffolder;
 use Survos\CodeBundle\Service\TranslatableTraitGenerator;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -29,14 +32,18 @@ class SurvosCodeBundle extends AbstractBundle
             ->setAutoconfigured(true) // bad practice! Better to inject
             ->setPublic(true);
 
-        foreach ([TranslatableTraitGenerator::class, EntityTranslatableUpdater::class] as $class) {
+        foreach ([TranslatableTraitGenerator::class,
+                     DirectEntityTranslatableUpdater::class,
+                     EntityTranslatableUpdater::class,
+                     StrEntitiesScaffolder::class,
+                     DirectEntityTranslatableUpdater::class] as $class) {
             $builder->autowire($class)
                 ->setPublic(true)
                 ->setAutoconfigured(true)
                 ;
         }
 
-        $builder->autowire(CodeTranslatableTraitCommand::class)
+        $builder->autowire(CodeTranslatableCommand::class)
             ->setPublic(true)
             ->setAutoconfigured(true)
             ->addTag('console.command');
