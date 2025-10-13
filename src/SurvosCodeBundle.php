@@ -2,6 +2,7 @@
 
 namespace Survos\CodeBundle;
 
+use Survos\CodeBundle\Command\CodeEntityCommand;
 use Survos\CodeBundle\Command\CodeTranslatableCommand;
 use Survos\CodeBundle\Command\CodeTranslatableTraitCommand;
 use Survos\CodeBundle\Command\MakeCommand;
@@ -54,6 +55,7 @@ class SurvosCodeBundle extends AbstractBundle
             ->addTag('console.command')
             , [MakeCommand::class,
                 MakeService::class,
+                CodeEntityCommand::class,
                 MakeController::class,
                 MakeRelation::class,
                 MakeConstructor::class]);

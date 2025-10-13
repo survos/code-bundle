@@ -33,7 +33,7 @@
         "league/csv": "^9.9",
         "survos/state-bundle": "^1.5",
         "phpunit/phpunit": "^12",
-        "doctrine/doctrine-bundle": "^2.7",
+        "doctrine/doctrine-bundle": "^2.7|^3.0",
         "symfony/http-client-contracts": "^3.5",
         "survos/babel-bundle": "dev-main"
     },
