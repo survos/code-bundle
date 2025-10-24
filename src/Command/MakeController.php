@@ -5,6 +5,7 @@ namespace Survos\CodeBundle\Command;
 use Nette\PhpGenerator\PhpNamespace;
 use Survos\Bundle\MakerBundle\Service\MakerService;
 use Survos\CodeBundle\Service\GeneratorService;
+use Survos\CoreBundle\Service\SurvosUtils;
 use Symfony\Bridge\Twig\Attribute\Template;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\Console\Attribute\Argument;
@@ -104,7 +105,6 @@ final class MakeController extends BaseMaker
                 $templateName,
                 route: $routePath);
 
-            if (!$from) {
                 $finder = new Finder();
                 $templates = [];
                 foreach ($finder->files()->in(__DIR__ . '/../../twig') as $file) {
@@ -113,8 +113,13 @@ final class MakeController extends BaseMaker
                     $map[$file->getFilenameWithoutExtension()] = $file->getRealPath();
 
                 }
+            if (!$from) {
                 $key = $io->askQuestion(new ChoiceQuestion('template name', $templates));
                 $from = $map[$key];
+            } else {
+                SurvosUtils::assertKeyExists($from, $map);
+                $from = $map[$from];
+                assert(file_exists($from), "Missing template name '$from'");
             }
             $content = file_get_contents($from);
             if ($content) {

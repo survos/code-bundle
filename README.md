@@ -2,6 +2,16 @@
 
 Generate PHP code for Symfony applications. Like maker-bundle, but with nette/php-generator
 
+Prerequistes for the demo
+
+* php 8.4+
+* Symfony CLI
+* meilisearch
+
+
+docker-compose.yaml
+```yaml
+```
 
 
 The bundle requires 2 classes, but you have to explicitly request them because of being in the --dev environment.  
@@ -25,3 +35,7 @@ Now let's create a simple command.
 bin/console survos:make:command app:shout "greet someone, optionally in all caps"
 
 ```
+
+
+https://platform.openai.com/api-keys
+

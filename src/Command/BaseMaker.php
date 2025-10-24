@@ -21,7 +21,7 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 use function Symfony\Component\String\u;
 
 // removed until nullable string options are allowed again
-#[AsCommand('survos:make:controller', 'Generate a controller method on an existing controller class')]
+//#[AsCommand('survos:make:controller', 'Generate a controller method on an existing controller class')]
 // class must exist before the method.
 //
 class BaseMaker

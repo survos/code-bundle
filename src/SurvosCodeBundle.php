@@ -5,11 +5,13 @@ namespace Survos\CodeBundle;
 use Survos\CodeBundle\Command\CodeEntityCommand;
 use Survos\CodeBundle\Command\CodeTranslatableCommand;
 use Survos\CodeBundle\Command\CodeTranslatableTraitCommand;
+use Survos\CodeBundle\Command\ImportEntitiesCommand;
 use Survos\CodeBundle\Command\MakeCommand;
 use Survos\CodeBundle\Command\MakeConstructor;
 use Survos\CodeBundle\Command\MakeController;
 use Survos\CodeBundle\Command\MakeRelation;
 use Survos\CodeBundle\Command\MakeService;
+use Survos\CodeBundle\Command\MeiliAdminCommand;
 use Survos\CodeBundle\Service\DirectEntityTranslatableUpdater;
 use Survos\CodeBundle\Service\EntityTranslatableUpdater;
 use Survos\CodeBundle\Service\GeneratorService;
@@ -37,6 +39,7 @@ class SurvosCodeBundle extends AbstractBundle
                      DirectEntityTranslatableUpdater::class,
                      EntityTranslatableUpdater::class,
                      StrEntitiesScaffolder::class,
+                     MeiliAdminCommand::class,
                      DirectEntityTranslatableUpdater::class] as $class) {
             $builder->autowire($class)
                 ->setPublic(true)
@@ -44,10 +47,12 @@ class SurvosCodeBundle extends AbstractBundle
                 ;
         }
 
-        $builder->autowire(CodeTranslatableCommand::class)
-            ->setPublic(true)
-            ->setAutoconfigured(true)
-            ->addTag('console.command');
+        foreach ([ImportEntitiesCommand::class, CodeTranslatableCommand::class] as $class) {
+            $builder->autowire($class)
+                ->setPublic(true)
+                ->setAutoconfigured(true)
+                ->addTag('console.command');
+        }
 
         array_map(fn(string $class) => $builder->autowire($class)
             ->setArgument('$projectDir', '%kernel.project_dir%')
