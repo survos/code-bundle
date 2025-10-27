@@ -22,7 +22,7 @@ use Symfony\Component\Routing\Generator\UrlGeneratorInterface;
 #[AsCommand(name: 'code:meili:admin', description: 'Generate MeiliDashboardController and CRUD controllers')]
 class MeiliAdminCommand extends Command
 {
-    public function __construct(private readonly MeiliService $meiliService)
+    public function __construct(private readonly ?MeiliService $meiliService=null)
     {
         parent::__construct();
     }
