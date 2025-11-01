@@ -6,6 +6,7 @@ namespace Survos\CodeBundle\Command;
 use DateTimeImmutable;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\Persistence\Mapping\MappingException;
+use JetBrains\PhpStorm\Deprecated;
 use League\Csv\Reader as CsvReader;
 use JsonMachine\Items;
 use Survos\JsonlBundle\Reader\JsonlReader as SurvosJsonlReader;
@@ -18,7 +19,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\PropertyAccess\PropertyAccessorInterface;
 
 
-#[AsCommand('code:import', 'Import records from a CSV/TSV/JSON/JSONL into a Doctrine entity')]
+#[AsCommand('code:import', 'Import records from a CSV/TSV/JSON/JSONL into a Doctrine entity', hidden: true)]
+#[Deprecated("Moved to importbundle")]
 final class ImportEntitiesCommand
 {
     public function __construct(
