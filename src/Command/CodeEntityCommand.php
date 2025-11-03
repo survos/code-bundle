@@ -273,6 +273,8 @@ final class CodeEntityCommand
         $fs->mkdir(\dirname($targetPath));
         $fs->dumpFile($targetPath, $code);
 
+        $this->createRepo($outputDir, $name);
+
         $io->success(sprintf('Created entity: %s (%s)', $name, $targetPath));
         return Command::SUCCESS;
     }
@@ -439,6 +441,56 @@ final class CodeEntityCommand
 
         // Otherwise leave as string
         return $v;
+    }
+
+    private function createRepo(string $entityDir, string $entityName)
+    {
+        $repoDir = str_replace('Entity', 'Repository', $entityDir);
+        $repoClass = $entityName . 'Repository';
+        if (!is_dir($repoDir))   { mkdir($repoDir, 0775, true); }
+        dd($repoDir, $repoClass);
+
+        // Str entity
+        if (!file_exists($entityDir.'/Str.php')) {
+            $code = <<<'PHPSTR'
+<?php
+declare(strict_types=1);
+
+namespace App\Entity;
+
+use App\Repository\StrRepository;
+use Doctrine\ORM\Mapping as ORM;
+
+#[ORM\Entity(repositoryClass: StrRepository::class)]
+#[ORM\Table(name: 'str')]
+class Str extends \Survos\BabelBundle\Entity\Base\StrBase {}
+PHPSTR;
+            file_put_contents($entityDir.'/Str.php', $code);
+            $created++;
+            $io->writeln(' • Created <info>App\Entity\Str</info>');
+        }
+        // Str repo
+        if (!file_exists($repoDir.'/StrRepository.php')) {
+            $code = <<<'PHPSTRR'
+<?php
+declare(strict_types=1);
+
+namespace App\Repository;
+
+use App\Entity\Str;
+use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
+use Doctrine\Persistence\ManagerRegistry;
+
+final class StrRepository extends ServiceEntityRepository
+{
+    public function __construct(ManagerRegistry $registry){ parent::__construct($registry, Str::class); }
+}
+PHPSTRR;
+            file_put_contents($repoDir.'/StrRepository.php', $code);
+            $created++;
+            $io->writeln(' • Created <info>App\Repository\StrRepository</info>');
+        }
+
     }
 
 }
