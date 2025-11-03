@@ -8,6 +8,8 @@ use Doctrine\Persistence\ManagerRegistry;
 use Nette\PhpGenerator\ClassType;
 use Nette\PhpGenerator\PhpNamespace;
 use Nette\PhpGenerator\Type;
+use Psr\Log\LoggerAwareInterface;
+use Psr\Log\LoggerAwareTrait;
 use Survos\StateBundle\Service\WorkflowHelperService;
 use Symfony\Bridge\Twig\Attribute\Template;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -21,8 +23,9 @@ use Symfony\Component\Security\Http\Attribute\IsGranted;
 
 use function Symfony\Component\String\u;
 
-class GeneratorService
+class GeneratorService implements LoggerAwareInterface
 {
+    use LoggerAwareTrait;
     //    private PropertyAccessor $propertyAccessor;
     public function __construct(
         #[Autowire('%kernel.project_dir%')] private ?string                 $projectDir,
@@ -210,7 +213,8 @@ class GeneratorService
 
         if ($class->hasMethod($methodName)) {
             // @todo: custom exceptions
-            throw new \Exception("Method $methodName already exists");
+            $this->logger->warning("Method '$methodName' already exists.");
+            return;
         }
 
         $method = $class->hasMethod($methodName)
