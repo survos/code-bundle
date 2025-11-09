@@ -448,49 +448,27 @@ final class CodeEntityCommand
         $repoDir = str_replace('Entity', 'Repository', $entityDir);
         $repoClass = $entityName . 'Repository';
         if (!is_dir($repoDir))   { mkdir($repoDir, 0775, true); }
-        dd($repoDir, $repoClass);
 
-        // Str entity
-        if (!file_exists($entityDir.'/Str.php')) {
-            $code = <<<'PHPSTR'
-<?php
-declare(strict_types=1);
-
-namespace App\Entity;
-
-use App\Repository\StrRepository;
-use Doctrine\ORM\Mapping as ORM;
-
-#[ORM\Entity(repositoryClass: StrRepository::class)]
-#[ORM\Table(name: 'str')]
-class Str extends \Survos\BabelBundle\Entity\Base\StrBase {}
-PHPSTR;
-            file_put_contents($entityDir.'/Str.php', $code);
-            $created++;
-            $io->writeln(' • Created <info>App\Entity\Str</info>');
-        }
-        // Str repo
-        if (!file_exists($repoDir.'/StrRepository.php')) {
-            $code = <<<'PHPSTRR'
+        //  repo
+        if (!file_exists($repoDir.'/Repository.php')) {
+            $code = sprintf(<<<'PHPSTRR'
 <?php
 declare(strict_types=1);
 
 namespace App\Repository;
 
-use App\Entity\Str;
+use App\Entity\%s;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
-final class StrRepository extends ServiceEntityRepository
+final class %s extends ServiceEntityRepository
 {
     public function __construct(ManagerRegistry $registry){ parent::__construct($registry, Str::class); }
 }
-PHPSTRR;
-            file_put_contents($repoDir.'/StrRepository.php', $code);
-            $created++;
-            $io->writeln(' • Created <info>App\Repository\StrRepository</info>');
+PHPSTRR, $entityName, $repoClass);
+//            dd($code, $repoDir, $repoClass);
+            file_put_contents($repoFilename = $repoDir."$repoClass.php", $code);
         }
-
     }
 
 }

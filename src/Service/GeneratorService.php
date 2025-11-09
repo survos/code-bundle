@@ -39,7 +39,6 @@ class GeneratorService implements LoggerAwareInterface
     public function getWorkflows(): iterable
     {
         foreach ($this->workflows as $workflowName => $workflow) {
-//            dd($workflowName, $workflow, $workflow->getName());
             yield $workflow->getName();
         }
 //        foreach ($this->workflows as $workflowName => $workflow) {
@@ -100,8 +99,8 @@ class GeneratorService implements LoggerAwareInterface
     {
         $namespace = new PhpNamespace($namespaceName);
         $class = $namespace->addClass($className);
-        $class//            ->setExtends(AbstractController::class)
-        ;
+//        $class//            ->setExtends(AbstractController::class)
+//        ;
 
         return $namespace;
 
