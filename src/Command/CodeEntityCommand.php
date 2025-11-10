@@ -463,11 +463,13 @@ use Doctrine\Persistence\ManagerRegistry;
 
 final class %s extends ServiceEntityRepository
 {
-    public function __construct(ManagerRegistry $registry){ parent::__construct($registry, Str::class); }
+    public function __construct(ManagerRegistry $registry){ 
+    parent::__construct($registry, %s::class); 
+    }
 }
-PHPSTRR, $entityName, $repoClass);
+PHPSTRR, $entityName, $repoClass, $entityName);
 //            dd($code, $repoDir, $repoClass);
-            file_put_contents($repoFilename = $repoDir."$repoClass.php", $code);
+            file_put_contents($repoFilename = $repoDir."/$repoClass.php", $code);
         }
     }
 
