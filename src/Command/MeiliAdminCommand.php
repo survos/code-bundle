@@ -139,9 +139,9 @@ PHP
             foreach ($this->meiliService->settings as $indexName => $meiliSetting) {
                 $jsTemplateFile = sprintf('templates/js/%s.html.twig', $meiliSetting['rawName']);
                 if (!file_exists($jsTemplateFile)) {
-                    $dir = dirname($jsTemplateFile);
-                    if (!file_exists($dir)) {
-                        if (!mkdir($dir, 0777, true) && !is_dir($dir)) {
+                    $jsTemplateDir = dirname($jsTemplateFile);
+                    if (!file_exists($jsTemplateDir)) {
+                        if (!mkdir($jsTemplateDir, 0777, true) && !is_dir($jsTemplateDir)) {
                             throw new \RuntimeException(sprintf('Directory "%s" was not created', $dir));
                         }
                     }
