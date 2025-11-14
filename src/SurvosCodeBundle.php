@@ -3,9 +3,9 @@
 namespace Survos\CodeBundle;
 
 use Survos\CodeBundle\Command\CodeEntityCommand;
+use Survos\CodeBundle\Command\CodeJsTwigCommand;
 use Survos\CodeBundle\Command\CodeTranslatableCommand;
 use Survos\CodeBundle\Command\CodeTranslatableTraitCommand;
-use Survos\CodeBundle\Command\ImportEntitiesCommand;
 use Survos\CodeBundle\Command\MakeCommand;
 use Survos\CodeBundle\Command\MakeConstructor;
 use Survos\CodeBundle\Command\MakeController;
@@ -47,7 +47,7 @@ class SurvosCodeBundle extends AbstractBundle
                 ;
         }
 
-        foreach ([ImportEntitiesCommand::class, CodeTranslatableCommand::class] as $class) {
+        foreach ([CodeJsTwigCommand::class, CodeTranslatableCommand::class] as $class) {
             $builder->autowire($class)
                 ->setPublic(true)
                 ->setAutoconfigured(true)

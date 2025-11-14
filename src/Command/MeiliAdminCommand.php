@@ -154,7 +154,7 @@ PHP
                 $className = (new \ReflectionClass($meiliSetting['class']))->getShortName();
                 $crudFile = new PhpFile();
                 $ns2 = $crudFile->addNamespace('App\\Controller\\Admin');
-                $ns2->addUse(AbstractCrudController::class);
+                $ns2->addUse(BaseCrudController::class);
                 $crud = $ns2->addClass($className . 'CrudController')
                     ->setExtends(BaseCrudController::class);
                 $crud->addMethod('getEntityFqcn')
@@ -191,6 +191,7 @@ PHP
             // Parent menu item for the entity
             yield MenuItem::subMenu($label, 'fas fa-film')
                 ->setBadge($count, 'info')
+//                ->setSubItemsExpanded(true)
                 ->setSubItems([
                     // CRUD management
                     MenuItem::linkToCrud('Browse All', 'fas fa-table', $class)

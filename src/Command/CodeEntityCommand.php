@@ -85,8 +85,8 @@ final class CodeEntityCommand
         }
 
         // Build entity
-        $file = new PhpFile();
-        $file->setStrictTypes();
+        $phpFile = new PhpFile();
+        $phpFile->setStrictTypes();
 
         $class = new ClassType($name);
         $class->setFinal();
@@ -264,9 +264,9 @@ final class CodeEntityCommand
         }
 
         $ns->add($class);
-        $file->addNamespace($ns);
+        $phpFile->addNamespace($ns);
 
-        $code = (string) $file;
+        $code = (string) $phpFile;
 
         $fs = new Filesystem();
         $targetPath = rtrim($outputDir, '/').'/'.$name.'.php';
