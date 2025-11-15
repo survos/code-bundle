@@ -7,6 +7,8 @@
         "generator",
         "php"
     ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "license": "MIT",
     "type": "symfony-bundle",
     "require": {
@@ -20,6 +22,8 @@
         "nikic/php-parser": "^5.6"
     },
     "require-dev": {
+        "roave/security-advisories": "dev-latest"
+        ,
         "phpstan/phpstan": "^2.0",
         "symfony/browser-kit": "^7.3||^8.0",
         "symfony/framework-bundle": "^7.3||^8.0",
@@ -39,7 +43,8 @@
         "survos/meili-bundle": "^2.0",
         "easycorp/easyadmin-bundle": "^4.0",
         "survos/ez-bundle": "^2.0",
-        "survos/jsonl-bundle": "^2.0"
+        "survos/jsonl-bundle": "^2.0",
+        "openai-php/client": "^0.18.0"
     },
     "autoload": {
         "psr-4": {
