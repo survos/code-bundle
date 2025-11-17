@@ -91,7 +91,6 @@ final class CodeJsTwigCommand
             'facetStats'        => $facetStats,
             'sampleHits'        => $sampleHits,
         ];
-        dd($schema);
         $io->section('Calling OpenAI ');
 
         $systemPrompt = <<<'SYS'
@@ -107,6 +106,7 @@ The user will give you:
   - Meilisearch Settings and facet distribution
   - The underlying Doctrine Entity (or entities, if nested) to leverage ApiProperty data
   - The class may include fields that are no indexed, the authority is the meilisearch 'settings'
+  - Look for "Ai Agent: " to see comments.
 
 You MUST:
   - Output ONLY valid Twig code, with no explanations or Markdown.
@@ -142,6 +142,10 @@ TXT,
             $sampleJson
         );
 
+        if (!class_exists(OpenAI::class)) {
+            $io->error('composer req openai-php/client');
+            return Command::FAILURE;
+        }
         $client    = OpenAI::client($this->openaiApiKey);
         $modelName = $modelName ?: 'gpt-4o-mini';
 
