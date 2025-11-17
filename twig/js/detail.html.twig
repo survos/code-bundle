@@ -41,13 +41,18 @@
                 {{ hit.title }}
             </h5>
         {% endif %}
+        {# AI Agent: we could be a single, short value in the upper right, like genre or price #}
+
+
 
         {# fill in the body with interesting data, often the second searchable field, like 'description', be smart about only showing a few lines and not overwhelming our card #}
         <div class="card-body p-3">
             {{ hit.description }}
         </div>
 
-        {# AI Agent: maybe put a few values from the first facet here? #}
+        {# AI Agent: maybe put a few values from the first few facets here, styled horiztonally.  If they're short, they could be badges or something styled nicely.
+
+        #}
 
 
     </div>
@@ -71,6 +76,6 @@
                 🔗 Open
             </a>
         {% endif %}
-        {# we can put a limited about of facets in the footer #}
+        {# we can put a limited about of facets in the footer, or some other fields #}
     </div>
 </div>
