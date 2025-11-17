@@ -169,6 +169,10 @@ TXT,
 
             return 1;
         }
+        $dir = dirname($outputPath);
+        if (!is_file($dir)) {
+            mkdir($dir, 0777, true);
+        }
         file_put_contents($outputPath, $response->outputText);
 
         return Command::SUCCESS;
