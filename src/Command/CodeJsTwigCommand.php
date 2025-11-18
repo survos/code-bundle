@@ -71,6 +71,10 @@ final class CodeJsTwigCommand
 //        $jsonPath     = $this->normalizePath($projectDir, $jsonPath);
         $templatePath = $this->normalizePath($projectDir, $templatePath);
         $outputPath   = $this->normalizePath($projectDir, $output);
+        $dir = dirname($outputPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
+        }
 
         if (!is_file($templatePath)) {
             $io->error(sprintf('Reference template not found: %s', $templatePath));
@@ -78,7 +82,7 @@ final class CodeJsTwigCommand
             return 1;
         }
 
-        $io->section('Reading reference Twig template…');
+        $io->section('Reading reference Twig template… ' . $templatePath);
         $rawTemplate = file_get_contents($templatePath) ?: '';
 
         $io->section('Sampling JSONL data…');
@@ -168,10 +172,6 @@ TXT,
             $io->error('Error calling OpenAI: '.$e->getMessage());
 
             return 1;
-        }
-        $dir = dirname($outputPath);
-        if (!is_file($dir)) {
-            mkdir($dir, 0777, true);
         }
         file_put_contents($outputPath, $response->outputText);
 
