@@ -97,7 +97,12 @@ final class CodeEntityCommand
             'repositoryClass' => new Literal($repoName . '::class'),
         ]);
         if ($meili) {
-            $class->addAttribute(MeiliIndex::class, []);
+            $class->addAttribute(MeiliIndex::class, [
+                'primaryKey' => null,
+                'filterable' => [],
+                'sortable' => [],
+                'searchable' => [],
+            ]);
         }
 
         $ns = new PhpNamespace($entityNamespace);
