@@ -134,8 +134,11 @@ PHP
 );
 
         $printer = new PsrPrinter();
-        $fs->dumpFile("$dir/MeiliDashboardController.php", $printer->printFile($file));
-        $io->writeln("<info>Generated $dir/MeiliDashboardController.php</info>");
+        $output = "$dir/MeiliDashboardController.php";
+        if (!file_exists($output) || $force) {
+            $fs->dumpFile($output, $printer->printFile($file));
+            $io->writeln("<info>Generated $dir/MeiliDashboardController.php</info>");
+        }
 
 
         // -- Generate CRUD controllers for each Meili index
