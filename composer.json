@@ -44,7 +44,8 @@
         "easycorp/easyadmin-bundle": "^4.0",
         "survos/ez-bundle": "^2.0",
         "survos/jsonl-bundle": "^2.0",
-        "openai-php/client": "^0.18.0"
+        "openai-php/client": "^0.18.0",
+        "api-platform/core": "^4.2"
     },
     "autoload": {
         "psr-4": {
