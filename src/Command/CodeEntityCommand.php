@@ -7,8 +7,13 @@ declare(strict_types=1);
 
 namespace Survos\CodeBundle\Command;
 
+use ApiPlatform\Doctrine\Orm\Filter\OrderFilter;
+use ApiPlatform\Doctrine\Orm\Filter\SearchFilter;
+use ApiPlatform\Metadata\ApiFilter;
 use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
+use ApiPlatform\Metadata\Get;
+use ApiPlatform\Metadata\GetCollection;
 use DateTimeImmutable;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping\Column;
@@ -21,8 +26,8 @@ use Nette\PhpGenerator\PhpFile;
 use Nette\PhpGenerator\PhpNamespace;
 use Nette\PhpGenerator\Visibility;
 use Survos\CodeBundle\Service\GeneratorService;
-use Survos\JsonlBundle\Model\JsonlProfile;
 use Survos\JsonlBundle\Model\FieldStats;
+use Survos\JsonlBundle\Model\JsonlProfile;
 use Survos\MeiliBundle\Metadata\MeiliIndex;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -30,6 +35,7 @@ use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Filesystem\Filesystem;
+use Symfony\Component\Serializer\Attribute\Groups;
 use function Symfony\Component\String\u;
 
 // Optional: use survos/jsonl-bundle reader when available
@@ -164,11 +170,23 @@ final class CodeEntityCommand extends Command
         if ($api) {
             $ns->addUse(ApiProperty::class);
             $ns->addUse(ApiResource::class);
-            $class->addAttribute(ApiResource::class);
+            $ns->addUse(ApiFilter::class);
+            $ns->addUse(Get::class);
+            $ns->addUse(GetCollection::class);
+            $ns->addUse(SearchFilter::class);
+            $ns->addUse(OrderFilter::class);
+            $ns->addUse(Groups::class);
+
+            $class->addAttribute(ApiResource::class, [
+                'operations' => [
+                    new Literal('new Get(normalizationContext: ["groups" => ["song.read", "rp"]])'),
+                    new Literal('new GetCollection(normalizationContext: ["groups" => ["song.read", "rp"]])'),
+                ],
+            ]);
         }
 
         // ---------------------------------------------------------------------
-        // Primary key heuristic (now can use uniqueness from profile when present)
+        // Primary key heuristic (now can use "probably unique" from profile)
         // ---------------------------------------------------------------------
         if (!$primaryField) {
             $pkCandidates = ['id','code','sku','ssn','uid','uuid','key'];
@@ -181,15 +199,10 @@ final class CodeEntityCommand extends Command
                 }
             }
 
-            // 2) If still unknown and we have a profile, pick first unique field
+            // 2) If still unknown and we have a profile, pick first "probably unique" field
             if (!$primaryField && $profile) {
                 foreach ($profile->fields as $nameField => $fs) {
-                    if ($fs->total > 0
-                        && !$fs->distinctCapReached
-                        && $fs->distinctCount === $fs->total
-                        && !$fs->isBooleanLike()
-                        && $fs->storageHint !== 'json'
-                    ) {
+                    if ($this->isProbablyUnique($fs)) {
                         $primaryField = $nameField;
                         break;
                     }
@@ -281,7 +294,7 @@ final class CodeEntityCommand extends Command
             }
 
             // -----------------------------------------------------------------
-            // ApiProperty (optional)
+            // ApiProperty + Groups (optional)
             // -----------------------------------------------------------------
             if ($api) {
                 $apiArgs = [];
@@ -314,6 +327,10 @@ final class CodeEntityCommand extends Command
                 }
 
                 $property->addAttribute(ApiProperty::class, $apiArgs);
+                // Add serializer group for read operations
+                $property->addAttribute(Groups::class, [
+                    'value' => ['song.read'],
+                ]);
             }
 
             // -----------------------------------------------------------------
@@ -325,9 +342,10 @@ final class CodeEntityCommand extends Command
 
                 // Name used in PHP + serialization → must match Meili docs
                 $meiliField = $propName;
+                $isArrayField = ($phpType === '?array');
 
-                // Facet & bool-like → filterable
-                if ($stats->isFacetCandidate() || $stats->isBooleanLike()) {
+                // Arrays (tags, genres, etc.) and facet/boolean-like → filterable
+                if ($isArrayField || $stats->isFacetCandidate() || $stats->isBooleanLike()) {
                     $filterable[] = $meiliField;
                 }
 
@@ -349,14 +367,49 @@ final class CodeEntityCommand extends Command
             }
         }
 
-        // Finalize MeiliIndex attribute
+        // ---------------------------------------------------------------------
+        // Finalize Meili + EasyAdmin/API helper constants
+        // ---------------------------------------------------------------------
+
+        // De-duplicate and reindex
+        $filterable = array_values(array_unique($filterable));
+        $sortable   = array_values(array_unique($sortable));
+        $searchable = array_values(array_unique($searchable));
+
+        // Expose as public constants so Meili, EasyAdmin, ApiFilters, etc. can reuse
+        $class->addConstant('FILTERABLE_FIELDS', $filterable)->setPublic();
+        $class->addConstant('SORTABLE_FIELDS',   $sortable)->setPublic();
+        $class->addConstant('SEARCHABLE_FIELDS', $searchable)->setPublic();
+
+        // ApiFilters using those constants
+        if ($api) {
+            // Facet / exact filters (departments, tags, etc.)
+            $class->addAttribute(ApiFilter::class, [
+                'value'      => new Literal('SearchFilter::class'),
+                'properties' => new Literal('self::FILTERABLE_FIELDS'),
+            ]);
+
+            // Full-text-ish filters (title, description, etc.)
+            $class->addAttribute(ApiFilter::class, [
+                'value'      => new Literal('SearchFilter::class'),
+                'properties' => new Literal('self::SEARCHABLE_FIELDS'),
+            ]);
+
+            // Sort
+            $class->addAttribute(ApiFilter::class, [
+                'value'      => new Literal('OrderFilter::class'),
+                'properties' => new Literal('self::SORTABLE_FIELDS'),
+            ]);
+        }
+
+        // MeiliIndex attribute referring to the constants
         if ($meili) {
             $ns->addUse(MeiliIndex::class);
             $class->addAttribute(MeiliIndex::class, [
                 'primaryKey' => $primaryKeyProperty ?? $primaryField,
-                'filterable' => array_values(array_unique($filterable)),
-                'sortable'   => array_values(array_unique($sortable)),
-                'searchable' => array_values(array_unique($searchable)),
+                'filterable' => new Literal('self::FILTERABLE_FIELDS'),
+                'sortable'   => new Literal('self::SORTABLE_FIELDS'),
+                'searchable' => new Literal('self::SEARCHABLE_FIELDS'),
             ]);
         }
 
@@ -427,8 +480,19 @@ final class CodeEntityCommand extends Command
             ];
         }
 
-        // JSON
+        // JSON / arrays (tags, keywords, materials, etc.)
         if ($sh === 'json') {
+            return [
+                '?array',
+                [
+                    'type'    => new Literal('Types::JSON'),
+                    'options' => ['jsonb' => true],
+                ],
+            ];
+        }
+
+        // STRING/TEXT that *behave* like multi-valued arrays (tags, genres, etc.)
+        if (in_array($sh, ['string', 'text'], true) && $this->looksArrayStringField($field, $stats)) {
             return [
                 '?array',
                 [
@@ -555,8 +619,8 @@ final class CodeEntityCommand extends Command
             return [];
         }
 
-        // JSON
-        if ($ext === 'json') {
+        // JSON / JSON-LD
+        if (in_array($ext, ['json', 'jsonld'], true)) {
             $raw = file_get_contents($path);
             if ($raw === false) {
                 throw new \RuntimeException("Unable to read $path");
@@ -606,7 +670,7 @@ final class CodeEntityCommand extends Command
             }
         }
 
-        throw new \InvalidArgumentException("Unsupported file extension: .$ext (use csv, json, or jsonl)");
+        throw new \InvalidArgumentException("Unsupported file extension: .$ext (use csv, json, jsonld, or jsonl)");
     }
 
     private function coerceValue(string $field, mixed $value): mixed
@@ -685,6 +749,82 @@ final class CodeEntityCommand extends Command
             || str_ends_with($field, '_flag')
             || str_ends_with($field, '_bool')
             || in_array($field, ['enabled','disabled','active','deleted','featured','fetched'], true);
+    }
+
+    /**
+     * Heuristic: treat field as "probably unique" even if distinct counting was capped.
+     */
+    private function isProbablyUnique(FieldStats $fs, int $sampleSize = 500): bool
+    {
+        if ($fs->nulls > 0) {
+            return false;
+        }
+        if ($fs->isBooleanLike()) {
+            return false;
+        }
+        if ($fs->storageHint === 'json') {
+            return false; // arrays/tags should not be PKs
+        }
+
+        // If we didn't cap, we can be precise
+        if (!$fs->distinctCapReached) {
+            return $fs->distinctCount === $fs->total;
+        }
+
+        // If we *did* cap, treat "all first N values were distinct" as strong signal
+        if ($fs->distinctCount >= min($sampleSize, $fs->total)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * STRING/TEXT that *behave* like multi-valued arrays (tags, genres, etc.).
+     */
+    private function looksArrayStringField(string $field, FieldStats $stats): bool
+    {
+        $sh = $stats->storageHint;
+        if (!in_array($sh, ['string', 'text'], true)) {
+            return false;
+        }
+
+        $f = strtolower($field);
+
+        // Explicit "list" names
+        $explicit = [
+            'tags',
+            'genres',
+            'actors',
+            'characters',
+            'keywords',
+            'materials',
+            'subjects',
+            'topics',
+            'categories',
+            'languages',
+            'authors',
+            'writers',
+            'performers',
+        ];
+        $flaggy = ['is', 'has', 'was', 'ids', 'status', 'enabled', 'disabled', 'active', 'deleted', 'featured', 'fetched'];
+
+        if (in_array($f, $flaggy, true)) {
+            return false;
+        }
+
+        $nameLooksListy = in_array($f, $explicit, true) || str_ends_with($f, 's');
+        if (!$nameLooksListy) {
+            return false;
+        }
+
+        // Example value must actually contain comma/pipe
+        $example = $stats->getTopOrFirstValueLabel();
+        if ($example === '') {
+            return false;
+        }
+
+        return str_contains($example, ',') || str_contains($example, '|');
     }
 
     private function createRepo(string $entityDir, string $entityName): void
