@@ -213,7 +213,7 @@ class GeneratorService implements LoggerAwareInterface
         if ($class->hasMethod($methodName)) {
             // @todo: custom exceptions
             $this->logger->warning("Method '$methodName' already exists.");
-            return;
+                return;
         }
 
         $method = $class->hasMethod($methodName)

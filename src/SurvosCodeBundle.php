@@ -16,6 +16,8 @@ use Survos\CodeBundle\Command\MeiliAdminCommand;
 use Survos\CodeBundle\Service\DirectEntityTranslatableUpdater;
 use Survos\CodeBundle\Service\EntityTranslatableUpdater;
 use Survos\CodeBundle\Service\GeneratorService;
+use Survos\CodeBundle\Service\JsonlProfileLoader;
+use Survos\CodeBundle\Service\ProfileResolver;
 use Survos\CodeBundle\Service\StrEntitiesScaffolder;
 use Survos\CodeBundle\Service\TranslatableTraitGenerator;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -37,10 +39,12 @@ class SurvosCodeBundle extends AbstractBundle
             ->setPublic(true);
 
         foreach ([TranslatableTraitGenerator::class,
+                     JsonlProfileLoader::class,
                      DirectEntityTranslatableUpdater::class,
                      EntityTranslatableUpdater::class,
                      StrEntitiesScaffolder::class,
                      MeiliAdminCommand::class,
+                     ProfileResolver::class,
                      DirectEntityTranslatableUpdater::class] as $class) {
             $builder->autowire($class)
                 ->setPublic(true)
@@ -67,6 +71,7 @@ class SurvosCodeBundle extends AbstractBundle
                 MakeController::class,
                 MakeRelation::class,
                 MakeConstructor::class]);
+
 
     }
 
