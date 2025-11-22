@@ -55,6 +55,8 @@ final class CodeEntityCommand extends Command
         SymfonyStyle $io,
         #[Argument('short name of the entity to generate')]
         string $name,
+        #[Argument('Path to a CSV/JSON/JSONL file (first record will be used, profile if present)')]
+        ?string $file = null,
         #[Option('Inline JSON; if omitted, read from STDIN')]
         ?string $json = null,
         #[Option('primary key name if known', name: 'pk')]
@@ -65,8 +67,6 @@ final class CodeEntityCommand extends Command
         string $repositoryNamespace = 'App\\Repository',
         #[Option('Output directory')]
         string $outputDir = 'src/Entity',
-        #[Option('Path to a CSV/JSON/JSONL file (first record will be used, profile if present)')]
-        ?string $file = null,
         #[Option('Add a MeiliIndex attribute')]
         ?bool $meili = null,
         #[Option('Configure as an API Platform resource')]
@@ -167,6 +167,8 @@ final class CodeEntityCommand extends Command
         $sortable   = [];
         $searchable = [];
 
+        $code = u($name)->camel()->toString();
+        $readGroup = "$code.read";
         if ($api) {
             $ns->addUse(ApiProperty::class);
             $ns->addUse(ApiResource::class);
@@ -179,8 +181,8 @@ final class CodeEntityCommand extends Command
 
             $class->addAttribute(ApiResource::class, [
                 'operations' => [
-                    new Literal('new Get(normalizationContext: ["groups" => ["song.read", "rp"]])'),
-                    new Literal('new GetCollection(normalizationContext: ["groups" => ["song.read", "rp"]])'),
+                    new Literal(sprintf('new Get(normalizationContext: ["groups" => ["%s"]])', $readGroup)),
+                    new Literal(sprintf('new GetCollection(normalizationContext: ["groups" => ["%s"]])', $readGroup)),
                 ],
             ]);
         }
@@ -329,34 +331,49 @@ final class CodeEntityCommand extends Command
                 $property->addAttribute(ApiProperty::class, $apiArgs);
                 // Add serializer group for read operations
                 $property->addAttribute(Groups::class, [
-                    'value' => ['song.read'],
+                    'groups' => [$readGroup],
                 ]);
             }
 
-            // -----------------------------------------------------------------
-            // Meili heuristics (optional)
-            // -----------------------------------------------------------------
+// -----------------------------------------------------------------
+// Meili heuristics (optional)
+// -----------------------------------------------------------------
+// -----------------------------------------------------------------
+// Meili heuristics (optional)
+// -----------------------------------------------------------------
             if ($meili && $stats && $profile) {
                 $sh    = $stats->storageHint;
                 $lower = strtolower($field);
 
-                // Name used in PHP + serialization → must match Meili docs
                 $meiliField = $propName;
-                $isArrayField = ($phpType === '?array');
+
+                // Normalize PHP type (strip leading '?')
+                $basePhpType  = ltrim($phpType, '?');
+                $isArrayField = ($basePhpType === 'array');
+                $isIntField   = ($basePhpType === 'int');
+                $isFloatField = ($basePhpType === 'float');
 
                 // Arrays (tags, genres, etc.) and facet/boolean-like → filterable
                 if ($isArrayField || $stats->isFacetCandidate() || $stats->isBooleanLike()) {
                     $filterable[] = $meiliField;
                 }
 
-                // Numeric → sortable
-                if (in_array($sh, ['int','float'], true)) {
+                // Integer fields → *both* filterable (for RangeSlider) and sortable
+                // Also explicitly treat "year" as filterable even if something goes weird.
+                if (($isIntField || $lower === 'year') && !$stats->isBooleanLike()) {
+                    $filterable[] = $meiliField;
+                    $sortable[]   = $meiliField;
+                }
+
+                // Float fields → sortable only (no RangeSlider facets)
+                if ($isFloatField) {
                     $sortable[] = $meiliField;
                 }
 
                 // Full-text searchable:
                 // Text fields that are not facets / boolean-like and not obvious IDs/codes.
-                if ($sh === 'text'
+                if (
+                    $sh === 'text'
                     && !$stats->isFacetCandidate()
                     && !$stats->isBooleanLike()
                 ) {
@@ -385,19 +402,19 @@ final class CodeEntityCommand extends Command
         if ($api) {
             // Facet / exact filters (departments, tags, etc.)
             $class->addAttribute(ApiFilter::class, [
-                'value'      => new Literal('SearchFilter::class'),
+                'filterClass'      => new Literal('SearchFilter::class'),
                 'properties' => new Literal('self::FILTERABLE_FIELDS'),
             ]);
 
             // Full-text-ish filters (title, description, etc.)
             $class->addAttribute(ApiFilter::class, [
-                'value'      => new Literal('SearchFilter::class'),
+                'filterClass'      => new Literal('SearchFilter::class'),
                 'properties' => new Literal('self::SEARCHABLE_FIELDS'),
             ]);
 
             // Sort
             $class->addAttribute(ApiFilter::class, [
-                'value'      => new Literal('OrderFilter::class'),
+                'filterClass'      => new Literal('OrderFilter::class'),
                 'properties' => new Literal('self::SORTABLE_FIELDS'),
             ]);
         }
@@ -454,6 +471,13 @@ final class CodeEntityCommand extends Command
         $sh = $stats->storageHint;
         $lowerField = strtolower($field);
 
+        // String fields that behave like integers → map to INTEGER.
+        if ($sh === 'string' && $this->looksIntegerStringField($field, $stats)) {
+            return [
+                '?int',
+                ['type' => new Literal('Types::INTEGER')],
+            ];
+        }
         // Boolean:
         // - explicit bool storageHint, OR
         // - boolean-like data *and* field name that looks like a flag.
@@ -750,6 +774,96 @@ final class CodeEntityCommand extends Command
             || str_ends_with($field, '_bool')
             || in_array($field, ['enabled','disabled','active','deleted','featured','fetched'], true);
     }
+
+    /**
+     * Heuristic: string fields whose values look like integers (no decimals),
+     * and which are not IDs/codes/boolean-like → treat as integer-ish.
+     */
+    private function looksIntegerStringField(string $field, FieldStats $stats): bool
+    {
+        if ($stats->storageHint !== 'string') {
+            return false;
+        }
+
+        if ($stats->isBooleanLike()) {
+            return false;
+        }
+
+        $lower = strtolower($field);
+
+        // Don't accidentally facet IDs/codes as integers.
+        if (str_contains($lower, 'id') || str_contains($lower, 'code')) {
+            return false;
+        }
+
+        $example = trim((string) $stats->getTopOrFirstValueLabel());
+        if ($example === '') {
+            return false;
+        }
+
+        // Strict integer pattern: no dots, no exponent.
+        if (preg_match('/^-?\d+$/', $example) !== 1) {
+            return false;
+        }
+
+        // Optional: avoid monster-length numeric strings.
+        if ($stats->stringMaxLength !== null && $stats->stringMaxLength > 11) {
+            return false;
+        }
+
+        return true;
+    }
+
+
+    /**
+     * Numeric-ish strings that we want to treat as numeric for Meili
+     * (e.g. "year", "votes", "budget" when profiled as storageHint="string").
+     */
+    private function looksNumericStringField(string $field, FieldStats $stats): bool
+    {
+        if ($stats->storageHint !== 'string') {
+            return false;
+        }
+
+        if ($stats->isBooleanLike()) {
+            return false;
+        }
+
+        $lower = strtolower($field);
+
+        // Don't treat IDs / codes as numeric facets
+        if (str_contains($lower, 'id') || str_contains($lower, 'code')) {
+            return false;
+        }
+
+        // Strong hint that this is a year-like field
+        $looksLikeYear = $lower === 'year'
+            || str_ends_with($lower, '_year')
+            || str_contains($lower, 'year');
+
+        $example = trim((string) $stats->getTopOrFirstValueLabel());
+        if ($example === '') {
+            return $looksLikeYear; // still treat "year" as numeric-ish even without example
+        }
+
+        // Simple numeric / float pattern
+        $isNumeric = preg_match('/^-?\d+(?:\.\d+)?$/', $example) === 1;
+
+        if (!$isNumeric && !$looksLikeYear) {
+            return false;
+        }
+
+        // Optional: guard against obviously huge free-form numeric strings
+        if (property_exists($stats, 'stringMaxLength') && $stats->stringMaxLength !== null) {
+            // 10 digits covers most counts, years, budgets we're likely to see
+            if ($stats->stringMaxLength > 10 && !$looksLikeYear) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
 
     /**
      * Heuristic: treat field as "probably unique" even if distinct counting was capped.
