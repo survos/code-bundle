@@ -1,11 +1,6 @@
 <?php
 declare(strict_types=1);
 
-// File: src/Command/CodeJsTwigCommand.php
-// Survos\CodeBundle — Generate / refine templates for Meilisearch indexes:
-//   - JS-Twig hit card templates
-//   - Liquid embedder document templates
-
 namespace Survos\CodeBundle\Command;
 
 use Survos\MeiliBundle\Service\MeiliService;
@@ -22,7 +17,7 @@ use OpenAI;
     name: 'code:templates',
     description: 'Generate / refine JS-Twig and Liquid templates from Jsonl profile + Meilisearch settings.'
 )]
-final class CodeJsTwigCommand extends Command
+final class CodeTemplatesCommand extends Command
 {
     public function __construct(
         private readonly MeiliService $meiliService,
@@ -39,23 +34,23 @@ final class CodeJsTwigCommand extends Command
         SymfonyStyle $io,
         #[Argument('Index / template name (e.g. "movies", "book", "wam")')]
         string $indexName,
-        #[Option('Path to JS-Twig template (default: templates/js/<index>.html.twig)', shortcut: 'o')]
+        #[Option('Path to JS-Twig template (default: templates/js/<index>.html.twig)', shortcut: 't')]
         ?string $output = null,
         #[Option('Path to Jsonl profile (default: data/<index>.jsonl.profile.json)', shortcut: 'P')]
         ?string $profilePath = null,
-        #[Option('Generate JS-Twig template from heuristics and write it to disk', shortcut: 'p')]
-        bool $publish = false,
-        #[Option('Refine existing JS-Twig template using OpenAI', shortcut: 'a')]
+        #[Option('Generate JS-Twig template', shortcut: 'j')]
+        bool $twig = false,
+        #[Option('Generate Liquid embedder template')]
+        bool $liquid = false,
+        #[Option('Use AI to generate/refine the templates', shortcut: 'a')]
         bool $ai = false,
         #[Option('OpenAI model to use (default: gpt-4o-mini)')]
         ?string $modelName = null,
-        #[Option('Also generate a Liquid embedder template')]
-        ?bool $liquid = null,
     ): int {
         $io->title(sprintf('code:templates — %s', $indexName));
 
-        if (!$publish && !$ai && !$liquid) {
-            $io->warning('Nothing to do: use --publish, --ai, and/or --liquid.');
+        if (!$twig && !$liquid && !$ai) {
+            $io->warning('Nothing to do: use --twig, --liquid and/or --ai.');
             return Command::SUCCESS;
         }
 
@@ -71,8 +66,8 @@ final class CodeJsTwigCommand extends Command
         $config   = null;
         $index    = null;
 
-        // We only need profile/settings/config when publishing Twig and/or Liquid
-        if ($publish || $liquid) {
+        // We only need profile/settings/config when generating from heuristics
+        if ($twig || $liquid) {
             if (!is_file($profilePath)) {
                 $io->error(sprintf('Profile file missing: %s. Cannot generate heuristics without a Jsonl profile.', $profilePath));
                 return Command::FAILURE;
@@ -89,30 +84,30 @@ final class CodeJsTwigCommand extends Command
             [$config, $settings] = $this->buildConfigFromProfile($index, $profile, $settings);
         }
 
-        // 1) Publish base JS-Twig template
-        if ($publish) {
+        $liquidPath = $this->normalizePath(sprintf('templates/liquid/%s.liquid', $indexName));
+        $profileRawForAi = is_file($profilePath) ? (file_get_contents($profilePath) ?: '') : '';
+
+        // 1) Generate JS-Twig from heuristics
+        if ($twig) {
             $io->section('Generating base JS-Twig template from heuristics…');
             $twigSource = $this->generateJsTwigFromConfig($config, $settings);
 
             $this->filesystem->mkdir(\dirname($outputPath));
             $this->filesystem->dumpFile($outputPath, $twigSource);
 
-            $io->success(sprintf('Base JS-Twig template written to %s', $outputPath));
+            $io->success(sprintf('JS-Twig template written to %s', $outputPath));
         }
 
-        // 2) Generate Liquid embedder template
+        // 2) Generate Liquid from heuristics
         if ($liquid) {
             if ($config === null || $profile === null) {
-                $io->error('Cannot generate Liquid template without profile and config (run with --publish or ensure profile exists).');
+                $io->error('Cannot generate Liquid template without profile and config.');
                 return Command::FAILURE;
             }
 
             $io->section('Generating Liquid embedder template from heuristics…');
 
-            // Convention: templates/liquid/<index>.liquid
-            $liquidPath = $this->normalizePath(sprintf('templates/liquid/%s.liquid', $indexName));
             $this->filesystem->mkdir(\dirname($liquidPath));
-
             $liquidSource = $this->generateLiquidFromConfig($config, $profile, $indexName);
             $this->filesystem->dumpFile($liquidPath, $liquidSource);
 
@@ -125,13 +120,8 @@ final class CodeJsTwigCommand extends Command
             }
         }
 
-        // 3) AI refinement (card body only)
+        // 3) AI refinement / generation for Twig and/or Liquid
         if ($ai) {
-            if (!is_file($outputPath)) {
-                $io->error(sprintf('Template file %s does not exist. Use --publish first or create it manually.', $outputPath));
-                return Command::FAILURE;
-            }
-
             if (!$this->openaiApiKey) {
                 $io->error('OPENAI_API_KEY is not configured. Cannot use --ai without an API key.');
                 return Command::FAILURE;
@@ -142,15 +132,20 @@ final class CodeJsTwigCommand extends Command
                 return Command::FAILURE;
             }
 
-            $originalTemplate = file_get_contents($outputPath) ?: '';
-            $profileRaw       = is_file($profilePath) ? (file_get_contents($profilePath) ?: '') : '';
-
-            $io->section(sprintf('Refining card body in %s with OpenAI…', $outputPath));
-
             $client    = OpenAI::client($this->openaiApiKey);
             $modelName = $modelName ?: 'gpt-4o-mini';
 
-            $systemPrompt = <<<'SYS'
+            // Twig refinement
+            if ($twig) {
+                if (!is_file($outputPath)) {
+                    $io->error(sprintf('Twig template %s does not exist (generate it first).', $outputPath));
+                    return Command::FAILURE;
+                }
+
+                $io->section(sprintf('Refining Twig card body in %s with OpenAI…', $outputPath));
+                $originalTemplate = file_get_contents($outputPath) ?: '';
+
+                $systemPrompt = <<<'SYS'
 You are an expert Symfony/Twig front-end developer.
 
 You are given:
@@ -179,8 +174,8 @@ Your job:
     • Keep using the "hit" variable as the main object.
 SYS;
 
-            $userPrompt = sprintf(
-                <<<'TXT'
+                $userPrompt = sprintf(
+                    <<<'TXT'
 BASE_TEMPLATE_START
 %s
 BASE_TEMPLATE_END
@@ -191,38 +186,105 @@ PROFILE_JSON_END
 
 Please return ONLY the improved Twig template, nothing else. Do not wrap it in ``` fences.
 TXT,
-                $originalTemplate,
-                $profileRaw
-            );
+                    $originalTemplate,
+                    $profileRawForAi
+                );
 
-            try {
-                $response = $client->responses()->create([
-                    'model' => $modelName,
-                    'input' => [
-                        [
-                            'role'    => 'system',
-                            'content' => $systemPrompt,
+                try {
+                    $response = $client->responses()->create([
+                        'model' => $modelName,
+                        'input' => [
+                            ['role' => 'system', 'content' => $systemPrompt],
+                            ['role' => 'user',   'content' => $userPrompt],
                         ],
-                        [
-                            'role'    => 'user',
-                            'content' => $userPrompt,
-                        ],
-                    ],
-                    'max_output_tokens' => 4096,
-                ]);
-            } catch (\Throwable $e) {
-                $io->error('Error calling OpenAI: ' . $e->getMessage());
-                return Command::FAILURE;
+                        'max_output_tokens' => 4096,
+                    ]);
+                } catch (\Throwable $e) {
+                    $io->error('Error calling OpenAI for Twig: ' . $e->getMessage());
+                    return Command::FAILURE;
+                }
+
+                $raw     = $response->outputText;
+                $refined = $this->stripCodeFences($raw);
+                $stitched = $this->stitchCardBody($originalTemplate, $refined);
+                $this->filesystem->dumpFile($outputPath, $stitched);
+
+                $io->success(sprintf('AI-refined Twig template written to %s', $outputPath));
             }
 
-            $raw = $response->outputText;
+            // Liquid generation/refinement
+            if ($liquid) {
+                if (!is_file($liquidPath)) {
+                    $io->error(sprintf('Liquid template %s does not exist (generate it first with --liquid).', $liquidPath));
+                    return Command::FAILURE;
+                }
 
-            $refined  = $this->stripCodeFences($raw);
-            $stitched = $this->stitchCardBody($originalTemplate, $refined);
+                $io->section(sprintf('Refining Liquid template in %s with OpenAI…', $liquidPath));
+                $originalLiquid = file_get_contents($liquidPath) ?: '';
 
-            $this->filesystem->dumpFile($outputPath, $stitched);
+                $systemPromptLiquid = <<<'SYS'
+You are an expert at designing Liquid templates for Meilisearch embedders.
 
-            $io->success(sprintf('AI-refined template written to %s', $outputPath));
+You are given:
+  - A Liquid template that builds a Markdown document from a "doc" object.
+  - A Jsonl profile describing the fields, types, distributions, and facet candidates for that index.
+
+Your job:
+  - Improve the template so that it produces a compact, semantically rich Markdown summary,
+    emphasizing the fields that matter (title, description, creator, subjects, keywords, provenance).
+  - Use profile hints (string length, facetCandidate, distribution) to decide what to include or de-emphasize.
+  - Prefer headings (##), short labels, and pipe-joined lists for multi-valued fields.
+
+You MUST:
+  - Output ONLY Liquid code, nothing else.
+  - NOT wrap the template in ``` or ```liquid fences.
+  - Keep using "doc" as the variable for the record.
+  - Use only Meilisearch-supported Liquid features (no custom filters).
+SYS;
+
+                $userPromptLiquid = sprintf(
+                    <<<'TXT'
+BASE_LIQUID_TEMPLATE_START
+%s
+BASE_LIQUID_TEMPLATE_END
+
+PROFILE_JSON_START
+%s
+PROFILE_JSON_END
+
+Please return ONLY the improved Liquid template, nothing else. Do not wrap it in ``` fences.
+TXT,
+                    $originalLiquid,
+                    $profileRawForAi
+                );
+
+                try {
+                    $responseLiquid = $client->responses()->create([
+                        'model' => $modelName,
+                        'input' => [
+                            ['role' => 'system', 'content' => $systemPromptLiquid],
+                            ['role' => 'user',   'content' => $userPromptLiquid],
+                        ],
+                        'max_output_tokens' => 4096,
+                    ]);
+                } catch (\Throwable $e) {
+                    $io->error('Error calling OpenAI for Liquid: ' . $e->getMessage());
+                    return Command::FAILURE;
+                }
+
+                $rawLiquid     = $responseLiquid->outputText;
+                $refinedLiquid = $this->stripCodeFences($rawLiquid);
+
+                $this->filesystem->dumpFile($liquidPath, $refinedLiquid);
+                $len = strlen($refinedLiquid);
+
+                $io->success(sprintf('AI-refined Liquid template written to %s (%d characters)', $liquidPath, $len));
+
+                if ($io->isVerbose()) {
+                    $io->writeln("\n<comment>Liquid template content (AI-refined):</comment>\n");
+                    $io->writeln($refinedLiquid);
+                }
+            }
         }
 
         return Command::SUCCESS;
@@ -252,7 +314,6 @@ TXT,
         $newPos  = strpos($refined,  $marker);
 
         if ($origPos === false || $newPos === false) {
-            // If we can't find the marker, fallback to refined.
             return $refined;
         }
 
@@ -526,21 +587,116 @@ TXT,
         ];
     }
 
-    /**
-     * Generate the JS-Twig card (you can paste the full version we already settled on here).
-     */
     private function generateJsTwigFromConfig(array $config, array $settings): string
     {
         $configJson   = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $settingsJson = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-        // TODO: paste your established JS-Twig template here.
-        return sprintf("{# _config: %s #}\n{# settings: %s #}\n<div class=\"card\">{{ hit|json_encode }}</div>\n", $configJson, $settingsJson);
+        return <<<TWIG
+{# Generated automatically from JSONL profile + Meilisearch settings.
+   Safe to edit; re-generating will overwrite.
+
+   Meilisearch settings:
+$settingsJson
+#}
+
+{% set _config = $configJson %}
+
+{# A minimal but real card; you can swap this with your full card template. #}
+{% set pk        = attribute(hit, _config.primaryKey|default('id')) ?? (hit.id ?? null) %}
+{% set titleKey  = _config.titleField|default('title') %}
+{% set descKey   = _config.descriptionField|default(null) %}
+{% set imageKey  = _config.imageField|default(null) %}
+{% set maxLen    = _config.maxLen|default(100) %}
+{% set maxList   = _config.maxList|default(3) %}
+{% set labels    = _config.labels|default({}) %}
+
+{% set highlightedTitle = (hit._highlightResult is defined
+    and attribute(hit._highlightResult, titleKey) is defined
+    and attribute(attribute(hit._highlightResult, titleKey), 'value') is defined)
+    ? attribute(attribute(hit._highlightResult, titleKey), 'value')
+    : null
+%}
+{% set title = highlightedTitle ?? (attribute(hit, titleKey)|default(pk)) %}
+
+{% set description = null %}
+{% if descKey %}
+    {% set highlightedDesc = (hit._highlightResult is defined
+        and attribute(hit._highlightResult, descKey) is defined
+        and attribute(attribute(hit._highlightResult, descKey), 'value') is defined)
+        ? attribute(attribute(hit._highlightResult, descKey), 'value')
+        : null
+    %}
+    {% set rawDesc = attribute(hit, descKey)|default(null) %}
+    {% set description = highlightedDesc ?? rawDesc %}
+{% endif %}
+
+{% set imageUrl = imageKey ? (attribute(hit, imageKey)|default(null)) : null %}
+
+<div class="card h-100 shadow-sm border-0">
+    <div class="card-body p-3">
+        <div class="d-flex gap-3 mb-2">
+            {% if imageUrl %}
+                <div style="flex:0 0 96px;">
+                    <img
+                        src="{{ imageUrl }}"
+                        alt="{{ title|striptags }}"
+                        class="img-fluid rounded"
+                        loading="lazy"
+                        decoding="async"
+                        style="max-height:120px;object-fit:cover;"
+                    >
+                </div>
+            {% endif %}
+
+            <div class="flex-grow-1">
+                <div class="d-flex justify-content-between gap-2 mb-1">
+                    <h5 class="card-title mb-0 text-wrap" style="word-break:break-word;">
+                        {{ title|raw }}
+                    </h5>
+                </div>
+
+                {% if description %}
+                    <p
+                        class="text-body-secondary mb-0"
+                        style="
+                            display:-webkit-box;
+                            -webkit-line-clamp:3;
+                            -webkit-box-orient:vertical;
+                            overflow:hidden;
+                            text-overflow:ellipsis;
+                        "
+                    >
+                        {{ description|raw }}
+                    </p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card-footer bg-transparent border-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div class="d-flex flex-wrap align-items-center gap-2 small text-body-secondary">
+            {% if pk is not null %}
+                <span>{{ _config.primaryKey }}: {{ pk }}</span>
+            {% endif %}
+        </div>
+
+        <button
+            {{ stimulus_action(globals._sc_modal, 'modal') }}
+            data-hit-id="{{ pk }}"
+            class="btn btn-sm btn-outline-primary d-inline-flex align-items-center gap-1"
+        >
+            {{ ux_icon('json')|raw }}
+            <span>Details</span>
+        </button>
+    </div>
+</div>
+TWIG;
     }
 
     /**
      * Generate a first-pass Liquid embedder template based on _config + profile.
-     * Avoids sprintf; concatenates strings to stay safe with Liquid's {% %} syntax.
+     * Avoids sprintf for Liquid tags; concatenates strings to stay safe.
      */
     private function generateLiquidFromConfig(array $config, array $profile, string $indexName): string
     {
@@ -560,13 +716,11 @@ TXT,
         $lines[] = '{%- endcomment -%}';
         $lines[] = '';
 
-        // Title: allow for ID-ish titles (registrationNumber, etc.).
         $lines[] = '{%- assign title = doc.' . $titleField . ' -%}';
         $lines[] = '';
         $lines[] = '# {{ title }}';
         $lines[] = '';
 
-        // Description-ish block
         if ($descField) {
             $lines[] = '{% if doc.' . $descField . ' %}';
             $lines[] = '{{ doc.' . $descField . ' }}';
@@ -574,14 +728,13 @@ TXT,
             $lines[] = '';
         }
 
-        // Details (scalar fields / strong metadata)
+        // Details section from scalar fields
         if (!empty($scalarFields)) {
-            // Only add section if at least one scalar exists on doc
-            $condParts = [];
+            $conds = [];
             foreach ($scalarFields as $sf) {
-                $condParts[] = 'doc.' . $sf;
+                $conds[] = 'doc.' . $sf;
             }
-            $lines[] = '{% if ' . implode(' or ', $condParts) . ' %}';
+            $lines[] = '{% if ' . implode(' or ', $conds) . ' %}';
             $lines[] = '## Details';
             foreach ($scalarFields as $sf) {
                 $label = $labels[$sf] ?? $sf;
@@ -591,7 +744,7 @@ TXT,
             $lines[] = '';
         }
 
-        // Tag-like / array-ish fields as sections
+        // Tag-like fields as sections
         foreach ($tagFields as $tf) {
             $label = $labels[$tf] ?? $tf;
             $lower = strtolower($tf);
@@ -599,7 +752,6 @@ TXT,
             $lines[] = '{% if doc.' . $tf . ' %}';
             $lines[] = '## ' . $label;
 
-            // Heuristic: split pipe-delimited fields like keywords/subject
             if (in_array($lower, ['keywords', 'subject', 'subjects'], true)) {
                 $lines[] = '{% assign values = doc.' . $tf . ' | split: "|" %}';
                 $lines[] = '{{ values | join: " | " }}';
