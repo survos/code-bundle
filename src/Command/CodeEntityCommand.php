@@ -29,6 +29,7 @@ use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
 use Doctrine\ORM\Mapping\Id;
 use Nette\PhpGenerator\ClassType;
+use Nette\PhpGenerator\Constant;
 use Nette\PhpGenerator\Literal;
 use Nette\PhpGenerator\PhpFile;
 use Nette\PhpGenerator\PhpNamespace;
@@ -245,6 +246,9 @@ final class CodeEntityCommand extends Command
 
             // Doctrine / PHP types from FieldStats
             [$phpType, $ormArgs] = $this->determineTypesFromStats($field, $stats);
+//            if ($field == 'notes') {
+//                dd($phpType, $ormArgs, $field, $stats);
+//            }
 
             $property = $class->addProperty($propName)
                 ->setVisibility(Visibility::Public);
@@ -481,16 +485,23 @@ final class CodeEntityCommand extends Command
      *
      * @return array{0:string,1:array<string,mixed>} [phpType, ormArgs]
      */
+    /**
+     * Use FieldStats to determine PHP and Doctrine types.
+     *
+     * @return array{0:string,1:array<string,mixed>} [phpType, ormArgs]
+     */
     private function determineTypesFromStats(string $field, FieldStats $stats): array
     {
         $sh         = $stats->storageHint;
         $lowerField = \strtolower($field);
 
+        $prefix = 'Types';  // @todo: fix bug and use Types::class
+
         // String fields that behave like integers → map to INTEGER.
         if ($sh === 'string' && $this->looksIntegerStringField($field, $stats)) {
             return [
                 '?int',
-                ['type' => new Literal(Types::class . '::INTEGER')],
+                ['type' => new Literal($prefix . '::INTEGER')],
             ];
         }
 
@@ -498,7 +509,7 @@ final class CodeEntityCommand extends Command
         if ($sh === 'bool' || ($stats->isBooleanLike() && $this->looksBooleanField($lowerField))) {
             return [
                 '?bool',
-                ['type' => new Literal(Types::class . '::BOOLEAN')],
+                ['type' => new Literal($prefix. '::BOOLEAN')],
             ];
         }
 
@@ -506,7 +517,7 @@ final class CodeEntityCommand extends Command
         if ($sh === 'int') {
             return [
                 '?int',
-                ['type' => new Literal(Types::class . '::INTEGER')],
+                ['type' => new Literal($prefix. '::INTEGER')],
             ];
         }
 
@@ -514,7 +525,7 @@ final class CodeEntityCommand extends Command
         if ($sh === 'float') {
             return [
                 '?float',
-                ['type' => new Literal(Types::class . '::FLOAT')],
+                ['type' => new Literal($prefix. '::FLOAT')],
             ];
         }
 
@@ -523,7 +534,7 @@ final class CodeEntityCommand extends Command
             return [
                 '?array',
                 [
-                    'type'    => new Literal(Types::class . '::JSON'),
+                    'type'    => new Literal($prefix . '::JSON'),
                     'options' => ['jsonb' => true],
                 ],
             ];
@@ -534,20 +545,21 @@ final class CodeEntityCommand extends Command
             return [
                 '?array',
                 [
-                    'type'    => new Literal(Types::class . '::JSON'),
+                    'type'    => new Literal($prefix . '::JSON'),
                     'options' => ['jsonb' => true],
                 ],
             ];
         }
 
-        if ($sh === 'text') {
+        // Default: string with length; if profile says max length > 255, upgrade to TEXT.
+        if ($sh === 'text' || ($stats->stringMaxLength !== null && $stats->stringMaxLength > 255)) {
             return [
                 '?string',
-                ['type' => new Literal(Types::class . '::TEXT')],
+//                ['type' => new Literal(Types::class . '::TEXT')],
+                ['type' => new Literal($prefix . '::TEXT')],
             ];
         }
 
-        // Default: string with length
         $length = 255;
         if ($stats->stringMaxLength !== null && $stats->stringMaxLength > 0) {
             $length = \min($stats->stringMaxLength, 255);
