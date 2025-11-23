@@ -61,7 +61,7 @@ final class CodeEntityCommand extends Command
         SymfonyStyle $io,
         #[Argument('Path to the Jsonl profile (e.g. data/wam-dywer.profile.json)')]
         string $profileFile,
-        #[Argument('Fully-qualified entity class name (e.g. App\\Entity\\Wam)')]
+        #[Argument('Short or Fully-qualified entity class name (e.g. App\\Entity\\Wam)')]
         string $entityFqcn,
         #[Option('primary key name if known', name: 'pk')]
         ?string $primaryField = null,
@@ -122,8 +122,10 @@ final class CodeEntityCommand extends Command
         // ---------------------------------------------------------------------
         $pos = \strrpos($entityFqcn, '\\');
         if ($pos === false) {
-            $io->error(\sprintf('Entity FQCN "%s" has no namespace separator.', $entityFqcn));
-            return Command::FAILURE;
+            $entityFqcn = 'App\\Entity\\' . $entityFqcn;
+//            $io->error(\sprintf('Entity FQCN "%s" has no namespace separator.', $entityFqcn));
+//            return Command::FAILURE;
+            $pos = \strrpos($entityFqcn, '\\');
         }
 
         $entityNamespace = \substr($entityFqcn, 0, $pos);
@@ -142,6 +144,7 @@ final class CodeEntityCommand extends Command
         }
         $repoClass = $entityName . 'Repository';
         $repoFqcn  = $repoNamespace . '\\' . $repoClass;
+//        dd($repoClass, $repoFqcn);
 
         // ---------------------------------------------------------------------
         // Primary key selection (profile.uniqueFields / --pk only, no extra heuristics)
@@ -467,14 +470,14 @@ final class CodeEntityCommand extends Command
             );
             if (!$overwrite) {
                 $io->warning(\sprintf('Skipped overwriting existing entity: %s', $targetPath));
-                $this->createRepo($repoFqcn, $entityFqcn);
+                $this->createRepo($repoFqcn, $entityFqcn, $entityName);
                 return Command::SUCCESS;
             }
         }
 
         $fs->dumpFile($targetPath, $code);
 
-        $this->createRepo($repoFqcn, $entityFqcn);
+        $this->createRepo($repoFqcn, $entityFqcn, $entityName);
 
         $io->success(\sprintf('Created entity: %s (%s)', $entityFqcn, $targetPath));
         return Command::SUCCESS;
@@ -675,7 +678,7 @@ final class CodeEntityCommand extends Command
         return \str_contains($example, ',') || \str_contains($example, '|');
     }
 
-    private function createRepo(string $repoFqcn, string $entityFqcn): void
+    private function createRepo(string $repoFqcn, string $entityFqcn, string $entityName): void
     {
         $pos = \strrpos($repoFqcn, '\\');
         if ($pos === false) {
@@ -694,8 +697,8 @@ final class CodeEntityCommand extends Command
         }
 
         $posEntity  = \strrpos($entityFqcn, '\\');
-        $entityName = $posEntity === false ? $entityFqcn : \substr($entityFqcn, $posEntity + 1);
-
+//        $entityName = $posEntity === false ? $entityFqcn : \substr($entityFqcn, $posEntity + 1);
+//        dd($entityName);
         $code = \sprintf(<<<'PHPSTR'
 <?php
 declare(strict_types=1);
@@ -718,7 +721,7 @@ PHPSTR,
             $repoNamespace,
             $entityFqcn,
             $repoClass,
-            $entityFqcn
+            $entityName
         );
 
         $fs = new Filesystem();
