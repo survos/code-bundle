@@ -4,13 +4,14 @@ declare(strict_types=1);
 namespace Survos\CodeBundle\Service;
 
 use Survos\JsonlBundle\IO\JsonlReader;
+use Survos\JsonlBundle\Model\JsonlProfile;
 use Survos\JsonlBundle\Service\JsonlProfilerInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 final class ProfileResolver
 {
     public function __construct(
-        private readonly JsonlProfilerInterface $profiler,
+        private readonly ?JsonlProfilerInterface $profiler = null,
     ) {
     }
 
@@ -92,6 +93,9 @@ final class ProfileResolver
         if ($io) {
             $io->section(sprintf('Profiling JSONL file %s', $path));
         }
+        if (!class_exists(JsonlProfilerInterface::class)) {
+            throw new \RuntimeException("composer run survos/jsonl-bundle");
+        }
 
         $reader = new JsonlReader($path);
         $rows = \iterator_to_array($reader);
@@ -101,7 +105,7 @@ final class ProfileResolver
             'output'      => null,
             'recordCount' => \count($rows),
             'tags'        => [],
-            'fields'      => $this->profiler->profile($rows),
+            'fields'      => $this->profiler?->profile($rows),
         ];
     }
 }

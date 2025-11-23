@@ -139,10 +139,8 @@ PHP
             $fs->dumpFile($output, $printer->printFile($file));
             $io->writeln("<info>Generated $dir/MeiliDashboardController.php</info>");
         }
-
-
         // -- Generate CRUD controllers for each Meili index
-            foreach ($this->meiliService->settings as $indexName => $meiliSetting) {
+            foreach ($this->meiliService->getRawIndexSettings() as $indexName => $meiliSetting) {
                 $jsTemplateFile = sprintf('templates/js/%s.html.twig', $meiliSetting['rawName']);
                 if (!file_exists($jsTemplateFile)) {
                     $jsTemplateDir = dirname($jsTemplateFile);
@@ -151,13 +149,14 @@ PHP
                             throw new \RuntimeException(sprintf('Directory "%s" was not created', $dir));
                         }
                     }
-                    $template = __DIR__ . '/../../twig/js/detail.html.twig';
-                    // we really need to render this with the variables, set up the shape, etc.
-                    assert(file_exists($template), "Missing $template template");
-                    file_put_contents($jsTemplateFile, file_get_contents($template));
+                    // this was before we had a smart, generic template
+//                    $template = __DIR__ . '/../../twig/js/detail.html.twig';
+//                    // we really need to render this with the variables, set up the shape, etc.
+//                    assert(file_exists($template), "Missing $template template");
+//                    file_put_contents($jsTemplateFile, file_get_contents($template));
                 }
 
-                $className = (new \ReflectionClass($meiliSetting['class']))->getShortName();
+                $className = new \ReflectionClass($meiliSetting['class'])->getShortName();
                 $crudFile = new PhpFile();
                 $ns2 = $crudFile->addNamespace('App\\Controller\\Admin');
                 $ns2->addUse(BaseCrudController::class);
