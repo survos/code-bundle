@@ -36,7 +36,7 @@ final class CodeTemplatesCommand extends Command
         string $indexName,
         #[Option('Path to JS-Twig template (default: templates/js/<index>.html.twig)', shortcut: 't')]
         ?string $output = null,
-        #[Option('Path to Jsonl profile (default: data/<index>.jsonl.profile.json)', shortcut: 'P')]
+        #[Option('Path to Jsonl profile (default: data/<index>.profile.json)', shortcut: 'P')]
         ?string $profilePath = null,
         #[Option('Generate JS-Twig template', shortcut: 'j')]
         bool $twig = false,
@@ -58,7 +58,7 @@ final class CodeTemplatesCommand extends Command
         $outputPath = $this->normalizePath($output);
 
         // Profile JSONL artifact
-        $profilePath ??= sprintf('data/%s.jsonl.profile.json', $indexName);
+        $profilePath ??= sprintf('data/%s.profile.json', $indexName);
         $profilePath = $this->normalizePath($profilePath);
 
         $profile  = null;
