@@ -340,18 +340,27 @@ TXT,
 
     private function profileFieldToMeiliField(string $profileField): string
     {
-        $propName = preg_replace('/[^a-zA-Z0-9_]/', '_', $profileField);
-        $propName = strtolower($propName);
+        // If the profile field already has uppercase letters, assume it's the
+        // final camelCase Meili/Symfony property name and keep it as-is.
+        // Jsonl profiles already normalize e.g. "poster_url" → "posterUrl"
+        // and store the original header in "originalName".
+        if (\preg_match('/[A-Z]/', $profileField)) {
+            return $profileField;
+        }
 
-        $parts = explode('_', $propName);
-        $first = array_shift($parts);
+        // Otherwise, treat it as snake_case / weird and convert to camelCase.
+        $propName = \preg_replace('/[^a-zA-Z0-9_]/', '_', $profileField);
+        $propName = \strtolower($propName);
+
+        $parts = \explode('_', $propName);
+        $first = \array_shift($parts);
         $camel = $first;
 
         foreach ($parts as $part) {
             if ($part === '') {
                 continue;
             }
-            $camel .= ucfirst($part);
+            $camel .= \ucfirst($part);
         }
 
         return $camel;
@@ -369,6 +378,9 @@ TXT,
     /**
      * Build _config from Meili settings + Jsonl profile.
      */
+    /**
+     * Build _config from Meili settings + Jsonl profile.
+     */
     private function buildConfigFromProfile(object $index, array $profile, array $settings): array
     {
         $fields        = $profile['fields'] ?? [];
@@ -379,6 +391,7 @@ TXT,
         $searchable    = $settings['searchableAttributes'] ?? [];
         $rawFilterable = $settings['filterableAttributes'] ?? [];
 
+        // Map profile field names ⇄ Meili document property names
         $profileToMeili = [];
         $meiliToProfile = [];
         foreach ($fields as $profileField => $_meta) {
@@ -413,7 +426,9 @@ TXT,
 
         $allProfileFieldNames = array_keys($fields);
 
+        // -----------------------------
         // Title
+        // -----------------------------
         $profileTitleField = $pickProfileString(
             $allProfileFieldNames,
             $fields,
@@ -440,7 +455,9 @@ TXT,
 
         $titleField ??= $primaryKey;
 
-        // Description: prefer description-ish names first
+        // -----------------------------
+        // Description
+        // -----------------------------
         $descriptionField = null;
         $descriptionCandidates = ['description', 'overview', 'summary', 'abstract', 'notes'];
         foreach ($descriptionCandidates as $cand) {
@@ -467,7 +484,9 @@ TXT,
             }
         }
 
+        // -----------------------------
         // Scalar fields
+        // -----------------------------
         $scalarFields = [];
         foreach ($filterable as $meiliField) {
             if ($this->isIdLike($meiliField)) {
@@ -493,7 +512,9 @@ TXT,
             }
         }
 
+        // -----------------------------
         // Tag fields
+        // -----------------------------
         $tagFields    = [];
         $tagNameHints = [
             'genres', 'genre',
@@ -544,23 +565,87 @@ TXT,
             }
         }
 
-        // Image field
-        $imageField = null;
+        // -----------------------------
+        // Image field (NEW: use imageLike from profile)
+        // -----------------------------
+        $imageField        = null;
+        $bestProfileField  = null;
+        $bestScore         = 0.0;
+
         foreach ($fields as $profileField => $meta) {
-            $key = strtolower($profileField);
-            if (
-                (str_contains($key, 'image') ||
-                 str_contains($key, 'thumb') ||
-                 str_contains($key, 'poster') ||
-                 str_contains($key, 'cover')) &&
-                (($meta['storageHint'] ?? '') === 'string')
-            ) {
-                $imageField = $profileToMeili[$profileField] ?? $profileField;
-                break;
+            $score = 0.0;
+
+            $nameLower = strtolower($profileField);
+            $hint      = $meta['storageHint'] ?? null;
+            $imageLike = !empty($meta['imageLike']);
+            $exts      = $meta['imageExtensions'] ?? [];
+
+            // Strong signal: profiler marked it as image-like
+            if ($imageLike) {
+                $score += 10.0;
+            }
+
+            // Name hints (poster_url, thumbnail, image, cover, etc.)
+            if (str_contains($nameLower, 'poster')) {
+                $score += 5.0;
+            }
+            if (str_contains($nameLower, 'thumb')) {
+                $score += 4.0;
+            }
+            if (str_contains($nameLower, 'image')) {
+                $score += 3.0;
+            }
+            if (str_contains($nameLower, 'cover')) {
+                $score += 2.0;
+            }
+
+            // Storage hint: string is more likely to be a URL
+            if ($hint === 'string') {
+                $score += 1.0;
+            }
+
+            // Extensions from profiler (jpg/png/webp/etc.)
+            if (is_array($exts) && $exts !== []) {
+                $score += 1.0;
+                if (in_array('jpg', $exts, true) || in_array('jpeg', $exts, true)) {
+                    $score += 0.5;
+                }
+            }
+
+            if ($score <= 0) {
+                continue;
+            }
+
+            if ($score > $bestScore) {
+                $bestScore        = $score;
+                $bestProfileField = $profileField;
             }
         }
 
+        if ($bestProfileField !== null) {
+            $imageField = $profileToMeili[$bestProfileField] ?? $bestProfileField;
+        }
+
+        // Fallback for old profiles (no imageLike / imageExtensions present)
+        if ($imageField === null) {
+            foreach ($fields as $profileField => $meta) {
+                $key = strtolower($profileField);
+                if (
+                    (str_contains($key, 'image') ||
+                        str_contains($key, 'thumb') ||
+                        str_contains($key, 'poster') ||
+                        str_contains($key, 'cover')) &&
+                    (($meta['storageHint'] ?? '') === 'string')
+                ) {
+                    $imageField = $profileToMeili[$profileField] ?? $profileField;
+                    break;
+                }
+            }
+        }
+
+        // -----------------------------
         // Human labels
+        // -----------------------------
         $labels = [];
         foreach ($fields as $profileField => $_meta) {
             $meiliField          = $profileToMeili[$profileField] ?? $profileField;

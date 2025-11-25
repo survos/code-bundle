@@ -382,16 +382,33 @@ final class CodeEntityCommand extends Command
                 $isIntField   = ($basePhpType === 'int');
                 $isFloatField = ($basePhpType === 'float');
 
-                // Arrays (tags, genres, etc.) and facet/boolean-like → filterable
-                if ($isArrayField || $stats->isFacetCandidate() || $stats->isBooleanLike()) {
+                // Determine uniqueness: primary key OR profile.uniqueFields OR FieldStats->unique === true
+                $isUniqueFromProfileList = \in_array($field, $uniqueFields, true);
+                $isUniqueFlag            = \property_exists($stats, 'unique') && ($stats->unique === true);
+                $isUniqueField           = $isPk || $isUniqueFromProfileList || $isUniqueFlag;
+
+                // Arrays (tags, genres, etc.) and facet/boolean-like → filterable,
+                // BUT never facet unique fields (e.g. id).
+                if (
+                    !$isUniqueField
+                    && ($isArrayField || $stats->isFacetCandidate() || $stats->isBooleanLike())
+                ) {
                     $filterable[] = $meiliField;
                 }
 
                 // Integer fields → *both* filterable (for RangeSlider) and sortable
-                // Also explicitly treat "year" as filterable even if something goes weird.
-                if (($isIntField || $lower === 'year') && !$stats->isBooleanLike()) {
+                // Also explicitly treat "year" as filterable even if something goes weird,
+                // BUT again, skip unique fields (like id).
+                if (
+                    !$isUniqueField
+                    && ($isIntField || $lower === 'year')
+                    && !$stats->isBooleanLike()
+                ) {
                     $filterable[] = $meiliField;
                     $sortable[]   = $meiliField;
+                } elseif ($isIntField && !$stats->isBooleanLike()) {
+                    // Non-filterable but still sortable ints (e.g. unique numeric IDs)
+                    $sortable[] = $meiliField;
                 }
 
                 // Float fields → sortable only
@@ -728,4 +745,3 @@ PHPSTR,
         $fs->dumpFile($repoFilename, $code);
     }
 }
-
