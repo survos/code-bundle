@@ -20,12 +20,12 @@ use OpenAI;
 final class CodeTemplatesCommand extends Command
 {
     public function __construct(
-        private readonly MeiliService $meiliService,
         private readonly Filesystem $filesystem,
         #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
         #[Autowire('%env(OPENAI_API_KEY)%')]
         private readonly ?string $openaiApiKey = null,
+        private readonly ?MeiliService $meiliService=null,
     ) {
         parent::__construct();
     }
