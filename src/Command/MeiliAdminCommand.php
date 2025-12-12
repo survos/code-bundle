@@ -4,6 +4,7 @@ namespace Survos\CodeBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
+use EasyCorp\Bundle\EasyAdminBundle\Config\Assets;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\MenuItem;
 use EasyCorp\Bundle\EasyAdminBundle\Controller\AbstractCrudController;
@@ -104,6 +105,10 @@ class MeiliAdminCommand extends Command
         $configureDashboard = $class->addMethod('configureDashboard')
             ->setReturnType(Dashboard::class)
             ->setBody('return Dashboard::new()->setTitle("Meili Dashboard");');
+
+        $class->addMethod('configureAssets')
+            ->setReturnType(Assets::class)
+            ->setBody('return Assets::new()->useCustomIconSet();');
 
         $configureMenu = $class->addMethod('configureMenuItems')
             ->setReturnType('iterable')
