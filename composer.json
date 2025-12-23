@@ -37,7 +37,7 @@
         "phpunit/phpunit": "^12",
         "doctrine/doctrine-bundle": "^2.7|^3.0",
         "symfony/http-client-contracts": "^3.5",
-        "survos/babel-bundle": "dev-main",
+        "survos/babel-bundle": "^2.0",
         "survos/meili-bundle": "^2.0",
         "easycorp/easyadmin-bundle": "^4.0",
         "survos/ez-bundle": "^2.0",
