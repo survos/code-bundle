@@ -21,11 +21,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Filesystem\Filesystem;
 
 #[AsCommand(name: 'code:meili:admin', description: 'Generate MeiliDashboardController and CRUD controllers')]
-class MeiliAdminCommand extends Command
+class MeiliAdminCommand
 {
     public function __construct(private readonly ?MeiliService $meiliService = null)
     {
-        parent::__construct();
     }
 
     public function __invoke(
@@ -98,15 +97,15 @@ return parent::configureDashboard()
     ->setTitle('Meili Admin');
 PHP);
 
-        // Ensure EasyAdmin loads the dedicated entrypoint
-        $dashClass->addMethod('configureAssets')
-            ->setPublic()
-            ->setReturnType(Assets::class)
-            ->setBody(<<<'PHP'
-return parent::configureAssets()
-    ->addAssetMapperEntry('admin');
-PHP);
-
+//        // Ensure EasyAdmin loads the dedicated entrypoint
+//        $dashClass->addMethod('configureAssets')
+//            ->setPublic()
+//            ->setReturnType(Assets::class)
+//            ->setBody(<<<'PHP'
+//return parent::configureAssets()
+//    ->addAssetMapperEntry('admin');
+//PHP);
+//
         $dashboardOutput = "$dir/MeiliDashboardController.php";
         if (!file_exists($dashboardOutput) || $force) {
             $fs->dumpFile($dashboardOutput, $printer->printFile($dashboardFile));
