@@ -44,6 +44,9 @@ use function Symfony\Component\String\u;
 #[AsCommand('code:entity', 'Generate a Doctrine entity from a Jsonl profile (no CSV/JSON/STDIN).')]
 final class CodeEntityCommand extends Command
 {
+    // Add after the class declaration (around line 35)
+    private const RESERVED_PROPERTY_NAMES = ['table', 'class', 'key', 'index', 'order', 'group', 'select', 'from', 'where'];
+
     public function __construct(
         private readonly GeneratorService $generatorService, // kept for BC / future
         private readonly string $projectDir,
@@ -226,6 +229,10 @@ final class CodeEntityCommand extends Command
             $propName = \preg_replace('/[^a-zA-Z0-9_]/', '_', $field);
             $propName = u((string) $propName)->camel()->toString();
 
+            if (\in_array(\strtolower($propName), self::RESERVED_PROPERTY_NAMES, true)) {
+                $propName .= 'Field';
+            }
+
             /** @var FieldStats $stats */
             $stats = $profile->fields[$field] ?? null;
             if (!$stats instanceof FieldStats) {
@@ -256,8 +263,8 @@ final class CodeEntityCommand extends Command
 
             $property->addComment(\sprintf('@types %s (storageHint=%s)', $typesLabel, $storageHint));
 
-            $total  = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
-            $nulls  = (int) ($rawFieldStats['nulls'] ?? ($stats->nulls ?? 0));
+            $total    = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
+            $nulls    = (int) ($rawFieldStats['nulls'] ?? ($stats->nulls ?? 0));
             $distinct = (string) ($rawFieldStats['distinct'] ?? ($stats->distinct ?? ''));
 
             $property->addComment(\sprintf('@stats total=%d, nulls=%d, distinct=%s', $total, $nulls, $distinct));
@@ -306,41 +313,82 @@ final class CodeEntityCommand extends Command
                 $property->addAttribute(Groups::class, ['groups' => [$readGroup]]);
             }
 
-            // Meili: conservative, but respects naturalLanguageLike for searchable
+            // -----------------------------------------------------------------
+            // Meili: generate sane defaults
+            // -----------------------------------------------------------------
             if ($meili) {
                 $lower = \strtolower($field);
 
-                $isUnique = $isPk || \in_array($field, $uniqueFields, true) || \str_contains($lower, 'id');
+                $isUnique = $isPk
+                    || \in_array($field, $uniqueFields, true)
+                    || \str_contains($lower, 'id');
 
-                $basePhpType = \ltrim($phpType, '?');
+                $basePhpType  = \ltrim($phpType, '?');
                 $isArrayField = ($basePhpType === 'array');
                 $isIntField   = ($basePhpType === 'int');
                 $isFloatField = ($basePhpType === 'float');
 
-                $facetCandidate = !empty($rawFieldStats['facetCandidate']) || (\method_exists($stats, 'isFacetCandidate') && $stats->isFacetCandidate());
-                $booleanLike    = !empty($rawFieldStats['booleanLike']) || (\method_exists($stats, 'isBooleanLike') && $stats->isBooleanLike());
+                $facetCandidate = !empty($rawFieldStats['facetCandidate'])
+                    || (\method_exists($stats, 'isFacetCandidate') && $stats->isFacetCandidate());
+                $booleanLike = !empty($rawFieldStats['booleanLike'])
+                    || (\method_exists($stats, 'isBooleanLike') && $stats->isBooleanLike());
 
-                if (!$isUnique && ($isArrayField || $facetCandidate || $booleanLike)) {
-                    $filterable[] = $propName;
-                }
+                $nlLike    = !empty($rawFieldStats['naturalLanguageLike']);
+                $urlLike   = !empty($rawFieldStats['urlLike']);
+                $jsonLike  = !empty($rawFieldStats['jsonLike']);
+                $imageLike = !empty($rawFieldStats['imageLike']);
 
-                if ($isIntField && !$booleanLike) {
-                    if (!$isUnique) {
+                $totalCount    = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
+                $distinctCount = (int) ($rawFieldStats['distinct'] ?? ($stats->distinct ?? 0));
+
+                $isPayloadish = $this->isPayloadishField($lower, $urlLike, $imageLike, $jsonLike);
+                $highCardinality = $this->isHighCardinality($totalCount, $distinctCount);
+
+                // FILTERABLE
+                // - Never facet payload-ish or high-cardinality fields (URLs, JSON blobs, per-row identifiers, etc.)
+                // - Allow booleans/enums and *low-cardinality* facet candidates
+                // - Arrays are NOT auto-facets; only facet them when they look like real tags (low-cardinality)
+                if (
+                    !$isUnique
+                    && !$isPayloadish
+                    && !$highCardinality
+                ) {
+                    if ($booleanLike) {
+                        $filterable[] = $propName;
+                    } elseif ($facetCandidate) {
+                        $filterable[] = $propName;
+                    } elseif ($isArrayField) {
+                        // arrays: conservative default — only allow if they are low-cardinality (guard above)
                         $filterable[] = $propName;
                     }
+                }
+
+                // SORTABLE (+ numeric filterable when low-cardinality)
+                if ($isIntField && !$booleanLike) {
+                    $sortable[] = $propName;
+
+                    if (
+                        !$isUnique
+                        && !$isPayloadish
+                        && !$highCardinality
+                    ) {
+                        $filterable[] = $propName;
+                    }
+                } elseif ($isFloatField) {
                     $sortable[] = $propName;
                 }
 
-                if ($isFloatField) {
-                    $sortable[] = $propName;
-                }
-
-                $nlLike   = !empty($rawFieldStats['naturalLanguageLike']);
-                $urlLike  = !empty($rawFieldStats['urlLike']);
-                $jsonLike = !empty($rawFieldStats['jsonLike']);
-                $imageLike= !empty($rawFieldStats['imageLike']);
-
-                if ($basePhpType === 'string' && $nlLike && !$facetCandidate && !$booleanLike && !$urlLike && !$jsonLike && !$imageLike) {
+                // SEARCHABLE (natural language strings only; exclude payload-ish)
+                if (
+                    $basePhpType === 'string'
+                    && $nlLike
+                    && !$isPayloadish
+                    && !$facetCandidate
+                    && !$booleanLike
+                    && !$urlLike
+                    && !$jsonLike
+                    && !$imageLike
+                ) {
                     if (!\str_contains($lower, 'id') && !\str_contains($lower, 'code')) {
                         $searchable[] = $propName;
                     }
@@ -406,6 +454,42 @@ final class CodeEntityCommand extends Command
 
         $io->success(\sprintf('Created entity: %s (%s)', $entityFqcn, $targetPath));
         return Command::SUCCESS;
+    }
+
+    private function isPayloadishField(string $lowerFieldName, bool $urlLike, bool $imageLike, bool $jsonLike): bool
+    {
+        if ($urlLike || $imageLike || $jsonLike) {
+            return true;
+        }
+
+        // name-based backstops (kept intentionally blunt; these are almost always payload)
+        foreach (['url', 'uri', 'image', 'media', 'thumbnail', 'link', 'href'] as $needle) {
+            if (\str_contains($lowerFieldName, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isHighCardinality(int $total, int $distinct): bool
+    {
+        if ($total <= 0 || $distinct <= 0) {
+            return false;
+        }
+
+        // High-cardinality guardrails:
+        // - distinct/total >= 0.50 is usually per-row identity (URLs, IDs, etc.) and not a facet
+        // - absolute cap also prevents small datasets from facetting essentially-unique fields
+        if (($distinct / $total) >= 0.50) {
+            return true;
+        }
+
+        if ($distinct >= 500) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

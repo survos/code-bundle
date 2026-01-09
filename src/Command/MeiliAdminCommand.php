@@ -119,7 +119,7 @@ PHP);
         // -----------------------------------------
         foreach ($this->meiliService->getRawIndexSettings() as $indexName => $meiliSetting) {
             // keep your template directory scaffolding
-            $jsTemplateFile = sprintf('templates/js/%s.html.twig', $meiliSetting['rawName']);
+            $jsTemplateFile = sprintf('templates/js/%s.html.twig', $meiliSetting['baseName']);
             if (!file_exists($jsTemplateFile)) {
                 $jsTemplateDir = dirname($jsTemplateFile);
                 if (!is_dir($jsTemplateDir) && !@mkdir($jsTemplateDir, 0777, true) && !is_dir($jsTemplateDir)) {
