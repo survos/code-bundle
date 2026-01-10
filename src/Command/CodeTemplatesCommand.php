@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Survos\CodeBundle\Command;
 
+use OpenAI;
+use Survos\MeiliBundle\Service\IndexNameResolver;
 use Survos\MeiliBundle\Service\MeiliService;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -11,7 +13,6 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Filesystem\Filesystem;
-use OpenAI;
 
 #[AsCommand(
     name: 'code:templates',
@@ -25,14 +26,15 @@ final class CodeTemplatesCommand extends Command
         private readonly string $projectDir,
         #[Autowire('%env(OPENAI_API_KEY)%')]
         private readonly ?string $openaiApiKey = null,
-        private readonly ?MeiliService $meiliService=null,
+        private readonly MeiliService $meiliService,
+        private readonly IndexNameResolver $indexNameResolver,
     ) {
         parent::__construct();
     }
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Argument('Index / template name (e.g. "movies", "book", "wam")')]
+        #[Argument('Index / template base name (e.g. "movies", "book", "wam")')]
         string $indexName,
         #[Option('Path to JS-Twig template (default: templates/js/<index>.html.twig)', shortcut: 't')]
         ?string $output = null,
@@ -46,6 +48,8 @@ final class CodeTemplatesCommand extends Command
         bool $ai = false,
         #[Option('OpenAI model to use (default: gpt-4o-mini)')]
         ?string $modelName = null,
+        #[Option('Locale to resolve the Meilisearch UID (optional; defaults per registry/params)', shortcut: 'l')]
+        ?string $locale = null,
     ): int {
         $io->title(sprintf('code:templates — %s', $indexName));
 
@@ -57,7 +61,6 @@ final class CodeTemplatesCommand extends Command
         $output ??= sprintf('templates/js/%s.html.twig', $indexName);
         $outputPath = $this->normalizePath($output);
 
-        // Profile JSONL artifact
         $profilePath ??= sprintf('data/%s.profile.json', $indexName);
         $profilePath = $this->normalizePath($profilePath);
 
@@ -76,9 +79,11 @@ final class CodeTemplatesCommand extends Command
             $profileRaw = file_get_contents($profilePath) ?: '';
             $profile    = json_decode($profileRaw, true, 512, \JSON_THROW_ON_ERROR);
 
-            $io->section(sprintf('Loading Meilisearch settings for index "%s"...', $indexName));
-            $client   = $this->meiliService->getMeiliClient();
-            $index    = $client->getIndex($this->meiliService->getPrefixedIndexName($indexName));
+            $io->section(sprintf('Loading Meilisearch settings for base "%s"...', $indexName));
+
+            [$indexUid, $index] = $this->resolveIndex($indexName, $locale);
+
+            $io->writeln(sprintf('Resolved UID: <info>%s</info>', $indexUid));
             $settings = $index->getSettings();
 
             [$config, $settings] = $this->buildConfigFromProfile($index, $profile, $settings);
@@ -90,6 +95,10 @@ final class CodeTemplatesCommand extends Command
         // 1) Generate JS-Twig from heuristics
         if ($twig) {
             $io->section('Generating base JS-Twig template from heuristics…');
+
+            \assert(is_array($config));
+            \assert(is_array($settings));
+
             $twigSource = $this->generateJsTwigFromConfig($config, $settings);
 
             $this->filesystem->mkdir(\dirname($outputPath));
@@ -100,7 +109,7 @@ final class CodeTemplatesCommand extends Command
 
         // 2) Generate Liquid from heuristics
         if ($liquid) {
-            if ($config === null || $profile === null) {
+            if (!is_array($config) || !is_array($profile)) {
                 $io->error('Cannot generate Liquid template without profile and config.');
                 return Command::FAILURE;
             }
@@ -111,8 +120,7 @@ final class CodeTemplatesCommand extends Command
             $liquidSource = $this->generateLiquidFromConfig($config, $profile, $indexName);
             $this->filesystem->dumpFile($liquidPath, $liquidSource);
 
-            $len = strlen($liquidSource);
-            $io->success(sprintf('Liquid template written to %s (%d characters)', $liquidPath, $len));
+            $io->success(sprintf('Liquid template written to %s (%d characters)', $liquidPath, \strlen($liquidSource)));
 
             if ($io->isVerbose()) {
                 $io->writeln("\n<comment>Liquid template content:</comment>\n");
@@ -204,9 +212,10 @@ TXT,
                     return Command::FAILURE;
                 }
 
-                $raw     = $response->outputText;
-                $refined = $this->stripCodeFences($raw);
+                $raw      = $response->outputText;
+                $refined  = $this->stripCodeFences($raw);
                 $stitched = $this->stitchCardBody($originalTemplate, $refined);
+
                 $this->filesystem->dumpFile($outputPath, $stitched);
 
                 $io->success(sprintf('AI-refined Twig template written to %s', $outputPath));
@@ -276,9 +285,8 @@ TXT,
                 $refinedLiquid = $this->stripCodeFences($rawLiquid);
 
                 $this->filesystem->dumpFile($liquidPath, $refinedLiquid);
-                $len = strlen($refinedLiquid);
 
-                $io->success(sprintf('AI-refined Liquid template written to %s (%d characters)', $liquidPath, $len));
+                $io->success(sprintf('AI-refined Liquid template written to %s (%d characters)', $liquidPath, \strlen($refinedLiquid)));
 
                 if ($io->isVerbose()) {
                     $io->writeln("\n<comment>Liquid template content (AI-refined):</comment>\n");
@@ -288,6 +296,43 @@ TXT,
         }
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Resolve Meilisearch UID using the new IndexNameResolver policy:
+     * - per-base multilingual detection
+     * - base+locale -> raw -> uid (prefix applied centrally)
+     *
+     * @return array{0:string,1:object} [uid, index]
+     */
+    private function resolveIndex(string $baseIndexName, ?string $requestedLocale): array
+    {
+        $requestedLocale = $this->normalizeLocale($requestedLocale);
+
+        // Use the resolver's locale policy. We pass a best-effort fallback source locale:
+        // - if caller supplied a locale, treat it as fallbackSource
+        // - otherwise, default 'en' (resolver may override via registry metadata / params)
+        $fallbackSource = $requestedLocale ?? 'en';
+        $policy         = $this->indexNameResolver->localesFor($baseIndexName, $fallbackSource);
+
+        // Effective locale for this resolution:
+        // - explicit CLI --locale wins
+        // - otherwise use the resolver-selected source locale
+        $effectiveLocale = $requestedLocale ?? $policy['source'];
+
+        // Per-base multilingual flag (do NOT use global-isMultilingual here)
+        $isMlForBase = $this->indexNameResolver->isMultiLingualFor($baseIndexName, $policy['source']);
+
+        $uid    = $this->indexNameResolver->uidFor($baseIndexName, $effectiveLocale, $isMlForBase);
+        $client = $this->meiliService->getMeiliClient();
+
+        return [$uid, $client->getIndex($uid)];
+    }
+
+    private function normalizeLocale(?string $locale): ?string
+    {
+        $locale = $locale !== null ? trim($locale) : null;
+        return $locale !== '' && $locale !== null ? strtolower($locale) : null;
     }
 
     private function stripCodeFences(string $text): string
@@ -340,15 +385,10 @@ TXT,
 
     private function profileFieldToMeiliField(string $profileField): string
     {
-        // If the profile field already has uppercase letters, assume it's the
-        // final camelCase Meili/Symfony property name and keep it as-is.
-        // Jsonl profiles already normalize e.g. "poster_url" → "posterUrl"
-        // and store the original header in "originalName".
         if (\preg_match('/[A-Z]/', $profileField)) {
             return $profileField;
         }
 
-        // Otherwise, treat it as snake_case / weird and convert to camelCase.
         $propName = \preg_replace('/[^a-zA-Z0-9_]/', '_', $profileField);
         $propName = \strtolower($propName);
 
@@ -376,10 +416,7 @@ TXT,
     }
 
     /**
-     * Build _config from Meili settings + Jsonl profile.
-     */
-    /**
-     * Build _config from Meili settings + Jsonl profile.
+     * @return array{0:array<string,mixed>,1:array<string,mixed>}
      */
     private function buildConfigFromProfile(object $index, array $profile, array $settings): array
     {
@@ -391,7 +428,6 @@ TXT,
         $searchable    = $settings['searchableAttributes'] ?? [];
         $rawFilterable = $settings['filterableAttributes'] ?? [];
 
-        // Map profile field names ⇄ Meili document property names
         $profileToMeili = [];
         $meiliToProfile = [];
         foreach ($fields as $profileField => $_meta) {
@@ -426,9 +462,6 @@ TXT,
 
         $allProfileFieldNames = array_keys($fields);
 
-        // -----------------------------
-        // Title
-        // -----------------------------
         $profileTitleField = $pickProfileString(
             $allProfileFieldNames,
             $fields,
@@ -455,9 +488,6 @@ TXT,
 
         $titleField ??= $primaryKey;
 
-        // -----------------------------
-        // Description
-        // -----------------------------
         $descriptionField = null;
         $descriptionCandidates = ['description', 'overview', 'summary', 'abstract', 'notes'];
         foreach ($descriptionCandidates as $cand) {
@@ -484,9 +514,6 @@ TXT,
             }
         }
 
-        // -----------------------------
-        // Scalar fields
-        // -----------------------------
         $scalarFields = [];
         foreach ($filterable as $meiliField) {
             if ($this->isIdLike($meiliField)) {
@@ -512,9 +539,6 @@ TXT,
             }
         }
 
-        // -----------------------------
-        // Tag fields
-        // -----------------------------
         $tagFields    = [];
         $tagNameHints = [
             'genres', 'genre',
@@ -547,14 +571,10 @@ TXT,
 
             $distribution = $meta['distribution']['values'] ?? null;
             $total        = $meta['total'] ?? null;
-            $degenerate   = false;
             if (is_array($distribution) && $total) {
                 if (count($distribution) === 1 && reset($distribution) === $total) {
-                    $degenerate = true;
+                    continue;
                 }
-            }
-            if ($degenerate) {
-                continue;
             }
 
             if ($isArrayish || $isStringFacet || $isNameHint) {
@@ -565,12 +585,9 @@ TXT,
             }
         }
 
-        // -----------------------------
-        // Image field (NEW: use imageLike from profile)
-        // -----------------------------
-        $imageField        = null;
-        $bestProfileField  = null;
-        $bestScore         = 0.0;
+        $imageField       = null;
+        $bestProfileField = null;
+        $bestScore        = 0.0;
 
         foreach ($fields as $profileField => $meta) {
             $score = 0.0;
@@ -580,12 +597,10 @@ TXT,
             $imageLike = !empty($meta['imageLike']);
             $exts      = $meta['imageExtensions'] ?? [];
 
-            // Strong signal: profiler marked it as image-like
             if ($imageLike) {
                 $score += 10.0;
             }
 
-            // Name hints (poster_url, thumbnail, image, cover, etc.)
             if (str_contains($nameLower, 'poster')) {
                 $score += 5.0;
             }
@@ -599,21 +614,15 @@ TXT,
                 $score += 2.0;
             }
 
-            // Storage hint: string is more likely to be a URL
             if ($hint === 'string') {
                 $score += 1.0;
             }
 
-            // Extensions from profiler (jpg/png/webp/etc.)
             if (is_array($exts) && $exts !== []) {
                 $score += 1.0;
                 if (in_array('jpg', $exts, true) || in_array('jpeg', $exts, true)) {
                     $score += 0.5;
                 }
-            }
-
-            if ($score <= 0) {
-                continue;
             }
 
             if ($score > $bestScore) {
@@ -626,15 +635,11 @@ TXT,
             $imageField = $profileToMeili[$bestProfileField] ?? $bestProfileField;
         }
 
-        // Fallback for old profiles (no imageLike / imageExtensions present)
         if ($imageField === null) {
             foreach ($fields as $profileField => $meta) {
                 $key = strtolower($profileField);
                 if (
-                    (str_contains($key, 'image') ||
-                        str_contains($key, 'thumb') ||
-                        str_contains($key, 'poster') ||
-                        str_contains($key, 'cover')) &&
+                    (str_contains($key, 'image') || str_contains($key, 'thumb') || str_contains($key, 'poster') || str_contains($key, 'cover')) &&
                     (($meta['storageHint'] ?? '') === 'string')
                 ) {
                     $imageField = $profileToMeili[$profileField] ?? $profileField;
@@ -643,17 +648,11 @@ TXT,
             }
         }
 
-        // -----------------------------
-        // Human labels
-        // -----------------------------
         $labels = [];
         foreach ($fields as $profileField => $_meta) {
             $meiliField          = $profileToMeili[$profileField] ?? $profileField;
             $labels[$meiliField] = $this->humanizeField($meiliField);
         }
-
-        $maxLen  = 100;
-        $maxList = 3;
 
         return [
             [
@@ -665,8 +664,8 @@ TXT,
                 'tagFields'        => $tagFields,
                 'filterableFields' => $filterable,
                 'labels'           => $labels,
-                'maxLen'           => $maxLen,
-                'maxList'          => $maxList,
+                'maxLen'           => 100,
+                'maxList'          => 3,
             ],
             $settings,
         ];
@@ -687,7 +686,6 @@ $settingsJson
 
 {% set _config = $configJson %}
 
-{# A minimal but real card; you can swap this with your full card template. #}
 {% set pk        = attribute(hit, _config.primaryKey|default('id')) ?? (hit.id ?? null) %}
 {% set titleKey  = _config.titleField|default('title') %}
 {% set descKey   = _config.descriptionField|default(null) %}
@@ -790,7 +788,6 @@ TWIG;
         $scalarFields = $config['scalarFields']     ?? [];
         $tagFields    = $config['tagFields']        ?? [];
         $labels       = $config['labels']           ?? [];
-        $fields       = $profile['fields']          ?? [];
 
         $lines = [];
 
@@ -813,7 +810,6 @@ TWIG;
             $lines[] = '';
         }
 
-        // Details section from scalar fields
         if (!empty($scalarFields)) {
             $conds = [];
             foreach ($scalarFields as $sf) {
@@ -829,7 +825,6 @@ TWIG;
             $lines[] = '';
         }
 
-        // Tag-like fields as sections
         foreach ($tagFields as $tf) {
             $label = $labels[$tf] ?? $tf;
             $lower = strtolower($tf);
