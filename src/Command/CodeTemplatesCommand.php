@@ -24,10 +24,10 @@ final class CodeTemplatesCommand extends Command
         private readonly Filesystem $filesystem,
         #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
-        #[Autowire('%env(OPENAI_API_KEY)%')]
-        private readonly ?string $openaiApiKey = null,
         private readonly MeiliService $meiliService,
         private readonly IndexNameResolver $indexNameResolver,
+        #[Autowire('%env(OPENAI_API_KEY)%')]
+        private readonly ?string $openaiApiKey = null,
     ) {
         parent::__construct();
     }
