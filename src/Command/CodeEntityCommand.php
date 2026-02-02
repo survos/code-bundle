@@ -29,6 +29,7 @@ use Nette\PhpGenerator\PhpNamespace;
 use Nette\PhpGenerator\Visibility;
 use Survos\BabelBundle\Attribute\Translatable;
 use Survos\CodeBundle\Service\GeneratorService;
+use Survos\ImportBundle\Contract\DatasetPathsFactoryInterface;
 use Survos\JsonlBundle\Model\FieldStats;
 use Survos\JsonlBundle\Model\JsonlProfile;
 use Survos\MeiliBundle\Metadata\MeiliIndex;
@@ -50,28 +51,52 @@ final class CodeEntityCommand extends Command
     public function __construct(
         private readonly GeneratorService $generatorService, // kept for BC / future
         private readonly string $projectDir,
+        private readonly ?DatasetPathsFactoryInterface $pathsFactory = null,
     ) {
         parent::__construct();
     }
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Argument('Path to the Jsonl profile (e.g. data/amst.profile.json)')]
-        string $profileFile,
-        #[Argument('Short or Fully-qualified entity class name (e.g. App\\Entity\\Amst)')]
+        #[Argument('Short or FQCN. Short names default to App\\Index when --dto, otherwise App\\Entity')]
         string $entityFqcn,
+        #[Argument('Path to the Jsonl profile (e.g. data/amst.profile.json). Optional when --dataset is provided.')]
+        ?string $profileFile = null,
         #[Option('primary key name if known', name: 'pk')]
         ?string $primaryField = null,
         #[Option('Add a MeiliIndex attribute (default: true)')]
         ?bool $meili = null,
         #[Option('Configure as an API Platform resource')]
         ?bool $api = null,
+        #[Option('Generate an Index DTO instead of a Doctrine entity', name: 'dto')]
+        bool $dto = false,
+        #[Option('Dataset key (uses data/21_profile/obj.profile.json when data-bundle is installed)')]
+        ?string $dataset = null,
         #[Option('Mark natural-language fields as #[Translatable] (BabelBundle)', name: 'babel')]
         bool $babel = false,
         #[Option('Overwrite existing files without confirmation', name: 'force')]
         bool $force = false,
     ): int {
         $io->title('Entity generator (profile-only) — ' . $this->projectDir);
+
+        if (($profileFile === null || $profileFile === '') && $dataset !== null && $dataset !== '') {
+            if ($this->pathsFactory === null) {
+                $io->error(\sprintf(
+                    'Missing profile path. You passed --dataset=%s, but no DatasetPathsFactoryInterface is registered. ' .
+                    'Enable survos/data-bundle or pass an explicit profile path.',
+                    $dataset
+                ));
+                return Command::FAILURE;
+            }
+
+            $paths = $this->pathsFactory->for($dataset);
+            $profileFile = $paths->profileObjectPath();
+        }
+
+        if ($profileFile === null || $profileFile === '') {
+            $io->error('Missing profile path. Provide the profile file or pass --dataset.');
+            return Command::FAILURE;
+        }
 
         if (!\is_file($profileFile)) {
             $io->error(\sprintf('Profile file "%s" does not exist.', $profileFile));
@@ -117,7 +142,7 @@ final class CodeEntityCommand extends Command
         // ---------------------------------------------------------------------
         $pos = \strrpos($entityFqcn, '\\');
         if ($pos === false) {
-            $entityFqcn = 'App\\Entity\\' . $entityFqcn;
+            $entityFqcn = ($dto ? 'App\\Index\\' : 'App\\Entity\\') . $entityFqcn;
             $pos = \strrpos($entityFqcn, '\\');
         }
 
@@ -129,13 +154,18 @@ final class CodeEntityCommand extends Command
             return Command::FAILURE;
         }
 
-        // Repository FQCN
-        $repoNamespace = \str_contains($entityNamespace, '\\Entity')
-            ? \str_replace('\\Entity', '\\Repository', $entityNamespace)
-            : $entityNamespace . '\\Repository';
+        // Repository FQCN (entities only)
+        $repoNamespace = null;
+        $repoClass = null;
+        $repoFqcn = null;
+        if (!$dto) {
+            $repoNamespace = \str_contains($entityNamespace, '\\Entity')
+                ? \str_replace('\\Entity', '\\Repository', $entityNamespace)
+                : $entityNamespace . '\\Repository';
 
-        $repoClass = $entityName . 'Repository';
-        $repoFqcn  = $repoNamespace . '\\' . $repoClass;
+            $repoClass = $entityName . 'Repository';
+            $repoFqcn  = $repoNamespace . '\\' . $repoClass;
+        }
 
         // ---------------------------------------------------------------------
         // Primary key selection (profile.uniqueFields / --pk only, no heuristics)
@@ -169,6 +199,7 @@ final class CodeEntityCommand extends Command
         $primaryKeyProperty = u((string) $pkProp)->camel()->toString();
 
         $meili ??= true;
+        $api ??= $dto ? true : false;
 
         // ---------------------------------------------------------------------
         // Build entity
@@ -177,12 +208,18 @@ final class CodeEntityCommand extends Command
         $phpFile->setStrictTypes();
 
         $ns = new PhpNamespace($entityNamespace);
-        $ns->addUse(Entity::class);
-        $ns->addUse(Column::class);
-        $ns->addUse(Id::class);
+        if (!$dto) {
+            $ns->addUse(Entity::class);
+            $ns->addUse(Column::class);
+            $ns->addUse(Id::class);
+        }
         $ns->addUse(DateTimeImmutable::class);
-        $ns->addUse(Types::class);
-        $ns->addUse($repoFqcn);
+        if (!$dto) {
+            $ns->addUse(Types::class);
+        }
+        if ($repoFqcn !== null) {
+            $ns->addUse($repoFqcn);
+        }
 
         if ($babel) {
             $ns->addUse(Translatable::class);
@@ -193,9 +230,11 @@ final class CodeEntityCommand extends Command
         $class->addComment('@generated by code:entity from profile');
         $class->addComment('@profile ' . $profileFile);
 
-        $class->addAttribute(Entity::class, [
-            'repositoryClass' => new Literal($repoClass . '::class'),
-        ]);
+        if (!$dto && $repoClass !== null) {
+            $class->addAttribute(Entity::class, [
+                'repositoryClass' => new Literal($repoClass . '::class'),
+            ]);
+        }
 
         $filterable = [];
         $sortable   = [];
@@ -247,8 +286,6 @@ final class CodeEntityCommand extends Command
             [$phpType, $ormArgs] = $this->determineTypesFromStats($rawFieldStats, $stats);
 
             $property = $class->addProperty($propName)->setVisibility(Visibility::Public);
-            $property->setType($phpType);
-            $property->setValue(null);
 
             $property->addComment(\sprintf('Profile field "%s"', $field));
 
@@ -268,6 +305,16 @@ final class CodeEntityCommand extends Command
             $distinct = (string) ($rawFieldStats['distinct'] ?? ($stats->distinct ?? ''));
 
             $property->addComment(\sprintf('@stats total=%d, nulls=%d, distinct=%s', $total, $nulls, $distinct));
+
+            $propertyType = $phpType;
+            $propertyValue = null;
+            if ($phpType === '?array' && $nulls === 0) {
+                $propertyType = 'array';
+                $propertyValue = [];
+            }
+
+            $property->setType($propertyType);
+            $property->setValue($propertyValue);
 
             // Flags from profiler (raw JSON)
             foreach (['booleanLike','urlLike','jsonLike','imageLike','naturalLanguageLike'] as $k) {
@@ -291,11 +338,17 @@ final class CodeEntityCommand extends Command
 
             // PK / Column
             $isPk = ($field === $primaryField);
-            $ormArgs['nullable'] = !$isPk;
+            $nullable = !$isPk;
+            if ($propertyType === 'array' && $nulls === 0) {
+                $nullable = false;
+            }
+            $ormArgs['nullable'] = $nullable;
 
-            $property->addAttribute(Column::class, $ormArgs);
-            if ($isPk) {
-                $property->addAttribute(Id::class);
+            if (!$dto) {
+                $property->addAttribute(Column::class, $ormArgs);
+                if ($isPk) {
+                    $property->addAttribute(Id::class);
+                }
             }
 
             // API bits (unchanged)
@@ -406,15 +459,15 @@ final class CodeEntityCommand extends Command
 
         if ($api) {
             $class->addAttribute(ApiFilter::class, [
-                'filterClass' => new Literal(SearchFilter::class . '::class'),
+                'filterClass' => new Literal('\\' . SearchFilter::class . '::class'),
                 'properties'  => new Literal('self::FILTERABLE_FIELDS'),
             ]);
             $class->addAttribute(ApiFilter::class, [
-                'filterClass' => new Literal(SearchFilter::class . '::class'),
+                'filterClass' => new Literal('\\' . SearchFilter::class . '::class'),
                 'properties'  => new Literal('self::SEARCHABLE_FIELDS'),
             ]);
             $class->addAttribute(ApiFilter::class, [
-                'filterClass' => new Literal(OrderFilter::class . '::class'),
+                'filterClass' => new Literal('\\' . OrderFilter::class . '::class'),
                 'properties'  => new Literal('self::SORTABLE_FIELDS'),
             ]);
         }
@@ -450,9 +503,11 @@ final class CodeEntityCommand extends Command
         }
 
         $fs->dumpFile($targetPath, $code);
-        $this->createRepo($repoFqcn, $entityFqcn, $entityName);
+        if (!$dto && $repoFqcn !== null) {
+            $this->createRepo($repoFqcn, $entityFqcn, $entityName);
+        }
 
-        $io->success(\sprintf('Created entity: %s (%s)', $entityFqcn, $targetPath));
+        $io->success(\sprintf('Created %s: %s (%s)', $dto ? 'DTO' : 'entity', $entityFqcn, $targetPath));
         return Command::SUCCESS;
     }
 
