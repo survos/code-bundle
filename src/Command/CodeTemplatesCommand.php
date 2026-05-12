@@ -18,7 +18,7 @@ use Symfony\Component\Filesystem\Filesystem;
     name: 'code:templates',
     description: 'Generate / refine JS-Twig and Liquid templates from Jsonl profile + Meilisearch settings.'
 )]
-final class CodeTemplatesCommand extends Command
+final class CodeTemplatesCommand
 {
     public function __construct(
         private readonly Filesystem $filesystem,
@@ -29,7 +29,6 @@ final class CodeTemplatesCommand extends Command
         #[Autowire('%env(OPENAI_API_KEY)%')]
         private readonly ?string $openaiApiKey = null,
     ) {
-        parent::__construct();
     }
 
     public function __invoke(

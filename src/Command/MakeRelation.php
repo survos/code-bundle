@@ -22,14 +22,13 @@ use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\String\UnicodeString;
 
 #[AsCommand('code:relation', 'add relation properties to existing entities')]
-final class MakeRelation extends Command
+final class MakeRelation
 {
     public function __construct(
         #[Autowire('%kernel.project_dir%')] private string $projectDir,
         private GeneratorService $generatorService,
         private readonly Filesystem $fs = new Filesystem(),
     ) {
-        parent::__construct();
     }
 
     /**

@@ -22,7 +22,7 @@ use OpenAI;
     name: 'code:templates',
     description: 'Generate / refine JS-Twig and Liquid templates from Jsonl profile + Meilisearch settings.'
 )]
-final class CodeJsTwigCommand extends Command
+final class CodeJsTwigCommand
 {
     public function __construct(
         private readonly MeiliService $meiliService,
@@ -32,7 +32,6 @@ final class CodeJsTwigCommand extends Command
         #[Autowire('%env(OPENAI_API_KEY)%')]
         private readonly ?string $openaiApiKey = null,
     ) {
-        parent::__construct();
     }
 
     public function __invoke(

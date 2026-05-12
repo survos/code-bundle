@@ -43,7 +43,7 @@ use Symfony\Component\Serializer\Attribute\Groups;
 use function Symfony\Component\String\u;
 
 #[AsCommand('code:entity', 'Generate a Doctrine entity from a Jsonl profile (no CSV/JSON/STDIN).')]
-final class CodeEntityCommand extends Command
+final class CodeEntityCommand
 {
     // Add after the class declaration (around line 35)
     private const RESERVED_PROPERTY_NAMES = ['table', 'class', 'key', 'index', 'order', 'group', 'select', 'from', 'where'];
@@ -53,7 +53,6 @@ final class CodeEntityCommand extends Command
         private readonly string $projectDir,
         private readonly ?DatasetPathsFactoryInterface $pathsFactory = null,
     ) {
-        parent::__construct();
     }
 
     public function __invoke(
@@ -641,7 +640,6 @@ final class %s extends ServiceEntityRepository
 {
     public function __construct(ManagerRegistry $registry)
     {
-        parent::__construct($registry, %s::class);
     }
 }
 
