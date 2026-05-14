@@ -29,6 +29,8 @@ use Nette\PhpGenerator\PhpNamespace;
 use Nette\PhpGenerator\Visibility;
 use Survos\BabelBundle\Attribute\Translatable;
 use Survos\CodeBundle\Service\GeneratorService;
+use Survos\FieldBundle\Attribute\Field;
+use Survos\FieldBundle\Enum\Widget;
 use Survos\ImportBundle\Contract\DatasetPathsFactoryInterface;
 use Survos\JsonlBundle\Model\FieldStats;
 use Survos\JsonlBundle\Model\JsonlProfile;
@@ -73,6 +75,8 @@ final class CodeEntityCommand
         ?string $dataset = null,
         #[Option('Mark natural-language fields as #[Translatable] (BabelBundle)', name: 'babel')]
         bool $babel = false,
+        #[Option('Add #[Field] attributes (searchable/filterable/sortable/facet) from profile stats', name: 'field')]
+        bool $field = false,
         #[Option('Overwrite existing files without confirmation', name: 'force')]
         bool $force = false,
     ): int {
@@ -366,35 +370,69 @@ final class CodeEntityCommand
             }
 
             // -----------------------------------------------------------------
+            // Derive profile flags (used by both Meili constants and #[Field])
+            // -----------------------------------------------------------------
+            $lower        = \strtolower($field);
+            $basePhpType  = \ltrim($phpType, '?');
+            $isArrayField = ($basePhpType === 'array');
+            $isIntField   = ($basePhpType === 'int');
+            $isFloatField = ($basePhpType === 'float');
+            $isUnique     = $isPk || \in_array($field, $uniqueFields, true) || \str_contains($lower, 'id');
+
+            $facetCandidate = !empty($rawFieldStats['facetCandidate'])
+                || (\method_exists($stats, 'isFacetCandidate') && $stats->isFacetCandidate());
+            $booleanLike = !empty($rawFieldStats['booleanLike'])
+                || (\method_exists($stats, 'isBooleanLike') && $stats->isBooleanLike());
+            $nlLike    = !empty($rawFieldStats['naturalLanguageLike']);
+            $urlLike   = !empty($rawFieldStats['urlLike']);
+            $jsonLike  = !empty($rawFieldStats['jsonLike']);
+            $imageLike = !empty($rawFieldStats['imageLike']);
+
+            $totalCount    = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
+            $distinctCount = (int) ($rawFieldStats['distinct'] ?? ($stats->distinct ?? 0));
+            $isPayloadish    = $this->isPayloadishField($lower, $urlLike, $imageLike, $jsonLike);
+            $highCardinality = $this->isHighCardinality($totalCount, $distinctCount);
+
+            // -----------------------------------------------------------------
+            // #[Field] — per-property grid/search/filter metadata
+            // -----------------------------------------------------------------
+            if ($field) {
+                $fieldArgs = [];
+
+                $isSearchable = $basePhpType === 'string' && $nlLike && !$isPayloadish
+                    && !$facetCandidate && !$booleanLike && !$urlLike && !$jsonLike && !$imageLike
+                    && !\str_contains($lower, 'id') && !\str_contains($lower, 'code');
+
+                $isFilterable = !$isUnique && !$isPayloadish && !$highCardinality
+                    && ($booleanLike || $facetCandidate || $isArrayField);
+
+                $isSortable = ($isIntField && !$booleanLike) || $isFloatField;
+
+                $isFacet = $facetCandidate && !$isPayloadish && !$highCardinality;
+
+                if ($isSearchable)  { $fieldArgs['searchable']  = true; }
+                if ($isFilterable)  { $fieldArgs['filterable']  = true; }
+                if ($isSortable)    { $fieldArgs['sortable']    = true; }
+                if ($isFacet)       { $fieldArgs['facet']       = true; }
+                if ($isPayloadish)  { $fieldArgs['visible']     = false; }
+
+                if ($booleanLike) {
+                    $fieldArgs['widget'] = new Literal('Widget::Boolean');
+                } elseif ($isIntField || $isFloatField) {
+                    $fieldArgs['widget'] = new Literal('Widget::Range');
+                }
+
+                $property->addAttribute(Field::class, $fieldArgs);
+                $namespace->addUse(Field::class);
+                if (isset($fieldArgs['widget'])) {
+                    $namespace->addUse(Widget::class);
+                }
+            }
+
+            // -----------------------------------------------------------------
             // Meili: generate sane defaults
             // -----------------------------------------------------------------
             if ($meili) {
-                $lower = \strtolower($field);
-
-                $isUnique = $isPk
-                    || \in_array($field, $uniqueFields, true)
-                    || \str_contains($lower, 'id');
-
-                $basePhpType  = \ltrim($phpType, '?');
-                $isArrayField = ($basePhpType === 'array');
-                $isIntField   = ($basePhpType === 'int');
-                $isFloatField = ($basePhpType === 'float');
-
-                $facetCandidate = !empty($rawFieldStats['facetCandidate'])
-                    || (\method_exists($stats, 'isFacetCandidate') && $stats->isFacetCandidate());
-                $booleanLike = !empty($rawFieldStats['booleanLike'])
-                    || (\method_exists($stats, 'isBooleanLike') && $stats->isBooleanLike());
-
-                $nlLike    = !empty($rawFieldStats['naturalLanguageLike']);
-                $urlLike   = !empty($rawFieldStats['urlLike']);
-                $jsonLike  = !empty($rawFieldStats['jsonLike']);
-                $imageLike = !empty($rawFieldStats['imageLike']);
-
-                $totalCount    = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
-                $distinctCount = (int) ($rawFieldStats['distinct'] ?? ($stats->distinct ?? 0));
-
-                $isPayloadish = $this->isPayloadishField($lower, $urlLike, $imageLike, $jsonLike);
-                $highCardinality = $this->isHighCardinality($totalCount, $distinctCount);
 
                 // FILTERABLE
                 // - Never facet payload-ish or high-cardinality fields (URLs, JSON blobs, per-row identifiers, etc.)
