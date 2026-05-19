@@ -9,7 +9,7 @@ use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
 use Nette\PhpGenerator\Literal;
 use Nette\PhpGenerator\PhpFile;
 use Nette\PhpGenerator\PsrPrinter;
-use Survos\CoreBundle\Entity\RouteParametersInterface;
+use Survos\FieldBundle\Entity\RouteParametersInterface;
 use Survos\EzBundle\Controller\AbstractEzCrudController;
 use Survos\EzBundle\Field\LinkedTextField;
 use Survos\MeiliBundle\Controller\AbstractMeiliController;

@@ -5,7 +5,7 @@ namespace Survos\CodeBundle\Command;
 use Nette\PhpGenerator\PhpNamespace;
 use Survos\Bundle\MakerBundle\Service\MakerService;
 use Survos\CodeBundle\Service\GeneratorService;
-use Survos\CoreBundle\Service\SurvosUtils;
+
 use Symfony\Bridge\Twig\Attribute\Template;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\Console\Attribute\Argument;
@@ -117,7 +117,7 @@ final class MakeController extends BaseMaker
                 $key = $io->askQuestion(new ChoiceQuestion('template name', $templates));
                 $from = $map[$key];
             } else {
-                SurvosUtils::assertKeyExists($from, $map);
+                \Survos\DebugUtils\Assert::keyExists($from, $map);
                 $from = $map[$from];
                 assert(file_exists($from), "Missing template name '$from'");
             }
