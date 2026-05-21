@@ -24,8 +24,8 @@ final class CodeTemplatesCommand
         private readonly Filesystem $filesystem,
         #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
-        private readonly MeiliService $meiliService,
-        private readonly IndexNameResolver $indexNameResolver,
+        private readonly ?MeiliService $meiliService = null,
+        private readonly ?IndexNameResolver $indexNameResolver = null,
         #[Autowire('%env(OPENAI_API_KEY)%')]
         private readonly ?string $openaiApiKey = null,
     ) {
@@ -306,6 +306,10 @@ TXT,
      */
     private function resolveIndex(string $baseIndexName, ?string $requestedLocale): array
     {
+        if ($this->meiliService === null || $this->indexNameResolver === null) {
+            throw new \LogicException('MeiliService and IndexNameResolver are required for resolveIndex. Install survos/meili-bundle.');
+        }
+
         $requestedLocale = $this->normalizeLocale($requestedLocale);
 
         // Use the resolver's locale policy. We pass a best-effort fallback source locale:
