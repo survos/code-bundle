@@ -99,7 +99,7 @@ namespace {$ns};
 
 use Doctrine\ORM\Mapping as ORM;
 use Doctrine\DBAL\Types\Types;
-use Survos\BabelBundle\Attribute\Translatable;
+use Survos\Lingua\Contracts\Attribute\Translatable;
 use Symfony\Component\Serializer\Attribute\Groups;
 
 trait {$traitName}
@@ -120,7 +120,7 @@ PHP;
     private function scanExistingHookNames(string $code): array
     {
         $names = [];
-        $re = '/\#\[\s*(?:Survos\\\\BabelBundle\\\\Attribute\\\\)?Translatable[^\]]*\]\s*public\s+[^\$]*\$(\w+)\s*\{/mi';
+        $re = '/\#\[\s*(?:Survos\\\\Lingua\\\\Contracts\\\\Attribute\\\\)?Translatable[^\]]*\]\s*public\s+[^\$]*\$(\w+)\s*\{/mi';
         if (preg_match_all($re, $code, $m)) {
             foreach ($m[1] as $n) $names[] = (string)$n;
         }
@@ -154,7 +154,7 @@ PHP;
         $need = [
             'use Doctrine\ORM\Mapping as ORM;',
             'use Doctrine\DBAL\Types\Types;',
-            'use Survos\BabelBundle\Attribute\Translatable;',
+            'use Survos\Lingua\Contracts\Attribute\Translatable;',
             'use Symfony\Component\Serializer\Attribute\Groups;',
         ];
         foreach ($need as $use) {

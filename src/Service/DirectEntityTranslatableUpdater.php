@@ -234,7 +234,7 @@ final class DirectEntityTranslatableUpdater
         $this->copyNonColumnAttributes($hook, $originalProperty);
 
         // ensure Translatable attribute
-        $hook->addAttribute(ltrim(\Survos\BabelBundle\Attribute\Translatable::class, '\\'));
+        $hook->addAttribute(ltrim(\Survos\Lingua\Contracts\Attribute\Translatable::class, '\\'));
 
         $hook->addHook('get')
             ->setBody('return $this->resolveTranslatable(?, $this->?, ?);', [$fieldName, $backingName, $fieldName]);
