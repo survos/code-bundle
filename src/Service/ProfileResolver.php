@@ -3,15 +3,15 @@ declare(strict_types=1);
 
 namespace Survos\CodeBundle\Service;
 
-use Survos\JsonlBundle\IO\JsonlReader;
-use Survos\JsonlBundle\Model\JsonlProfile;
-use Survos\JsonlBundle\Service\JsonlProfilerInterface;
+use Survos\JsonlBundle\Sqlite\LegacyProfile;
+use Survos\JsonlBundle\Sqlite\SidecarDb;
+use Survos\JsonlBundle\Sqlite\SqlProfiler;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 final class ProfileResolver
 {
     public function __construct(
-        private readonly ?JsonlProfilerInterface $profiler = null,
+        private readonly ?SqlProfiler $profiler = null,
     ) {
     }
 
@@ -86,26 +86,22 @@ final class ProfileResolver
     }
 
     /**
-     * Create a profile from a *.jsonl file using JsonlReader + JsonlProfilerInterface.
+     * Create a profile from a *.jsonl file using the SQL profiler (SqlProfiler):
+     * it builds the sidecar `field_stats`, which LegacyProfile maps back to the
+     * legacy profile shape this resolver returns.
      */
     private function profileJsonl(string $path, ?SymfonyStyle $io = null): array
     {
         if ($io) {
             $io->section(sprintf('Profiling JSONL file %s', $path));
         }
-        if (!class_exists(JsonlProfilerInterface::class)) {
-            throw new \RuntimeException("composer run survos/jsonl-bundle");
+        if ($this->profiler === null) {
+            throw new \RuntimeException('SqlProfiler is unavailable — require survos/jsonl-bundle.');
         }
 
-        $reader = new JsonlReader($path);
-        $rows = \iterator_to_array($reader);
+        $result = $this->profiler->profile($path);
+        $fieldStats = (new SidecarDb($path . '.db'))->loadFieldStats();
 
-        return [
-            'input'       => $path,
-            'output'      => null,
-            'recordCount' => \count($rows),
-            'tags'        => [],
-            'fields'      => $this->profiler?->profile($rows),
-        ];
+        return LegacyProfile::full($path, $result->rows, $fieldStats);
     }
 }
