@@ -26,7 +26,7 @@ final class CodeTemplatesCommand
         private readonly string $projectDir,
         private readonly ?MeiliService $meiliService = null,
         private readonly ?IndexNameResolver $indexNameResolver = null,
-        #[Autowire('%env(OPENAI_API_KEY)%')]
+        #[Autowire('%env(default::OPENAI_API_KEY)%')]
         private readonly ?string $openaiApiKey = null,
     ) {
     }

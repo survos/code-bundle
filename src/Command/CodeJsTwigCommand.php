@@ -29,7 +29,7 @@ final class CodeJsTwigCommand
         private readonly Filesystem $filesystem,
         #[Autowire('%kernel.project_dir%')]
         private readonly string $projectDir,
-        #[Autowire('%env(OPENAI_API_KEY)%')]
+        #[Autowire('%env(default::OPENAI_API_KEY)%')]
         private readonly ?string $openaiApiKey = null,
     ) {
     }
