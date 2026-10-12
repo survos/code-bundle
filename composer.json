@@ -13,6 +13,7 @@
     "type": "symfony-bundle",
     "require": {
         "php": "^8.5",
+        "survos/data-contracts": "^2.32",
         "symfony/config": "^8.1",
         "symfony/dependency-injection": "^8.1",
         "symfony/http-kernel": "^8.1",

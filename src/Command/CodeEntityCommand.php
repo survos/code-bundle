@@ -31,7 +31,7 @@ use Survos\Lingua\Contracts\Attribute\Translatable;
 use Survos\CodeBundle\Service\GeneratorService;
 use Survos\FieldBundle\Attribute\Field;
 use Survos\FieldBundle\Enum\Widget;
-use Survos\ImportBundle\Contract\DatasetPathsFactoryInterface;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\JsonlBundle\Model\FieldStats;
 use Survos\JsonlBundle\Model\JsonlProfile;
 use Survos\MeiliBundle\Metadata\MeiliIndex;
@@ -53,7 +53,7 @@ final class CodeEntityCommand
     public function __construct(
         private readonly GeneratorService $generatorService, // kept for BC / future
         private readonly string $projectDir,
-        private readonly ?DatasetPathsFactoryInterface $pathsFactory = null,
+        private readonly ?DataPaths $dataPaths = null,
     ) {
     }
 
@@ -71,7 +71,7 @@ final class CodeEntityCommand
         ?bool $api = null,
         #[Option('Generate an Index DTO instead of a Doctrine entity', name: 'dto')]
         bool $dto = false,
-        #[Option('Dataset key (uses data/21_profile/obj.profile.json when data-bundle is installed)')]
+        #[Option('Dataset key (uses norm/obj.profile.json when DataPaths is configured)')]
         ?string $dataset = null,
         #[Option('Mark natural-language fields as #[Translatable] (BabelBundle)', name: 'babel')]
         bool $babel = false,
@@ -83,17 +83,16 @@ final class CodeEntityCommand
         $io->title('Entity generator (profile-only) — ' . $this->projectDir);
 
         if (($profileFile === null || $profileFile === '') && $dataset !== null && $dataset !== '') {
-            if ($this->pathsFactory === null) {
+            if ($this->dataPaths === null) {
                 $io->error(\sprintf(
-                    'Missing profile path. You passed --dataset=%s, but no DatasetPathsFactoryInterface is registered. ' .
-                    'Enable survos/data-bundle or pass an explicit profile path.',
+                    'Missing profile path. You passed --dataset=%s, but no DataPaths service is registered. ' .
+                    'Configure DataPaths or pass an explicit profile path.',
                     $dataset
                 ));
                 return Command::FAILURE;
             }
 
-            $paths = $this->pathsFactory->for($dataset);
-            $profileFile = $paths->profileObjectPath();
+            $profileFile = $this->dataPaths->stageDir($dataset, 'normalize') . '/obj.profile.json';
         }
 
         if ($profileFile === null || $profileFile === '') {
