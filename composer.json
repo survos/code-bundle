@@ -30,7 +30,7 @@
         "symfony/console": "^8.1",
         "symfony/routing": "^8.1",
         "symfony/security-bundle": "^8.1",
-        "doctrine/orm": "^2.12 || ^3.3",
+        "doctrine/orm": "^3.7",
         "league/csv": "^9.9",
         "survos/state-bundle": "^2.5",
         "phpunit/phpunit": "^13.0",
