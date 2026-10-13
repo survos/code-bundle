@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 // File: src/Command/CodeJsTwigCommand.php
@@ -16,7 +17,6 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Filesystem\Filesystem;
-use OpenAI;
 
 #[AsCommand(
     name: 'code:templates',
@@ -55,6 +55,7 @@ final class CodeJsTwigCommand
 
         if (!$publish && !$ai && !$liquid) {
             $io->warning('Nothing to do: use --publish, --ai, and/or --liquid.');
+
             return Command::SUCCESS;
         }
 
@@ -65,24 +66,25 @@ final class CodeJsTwigCommand
         $profilePath ??= sprintf('data/%s.jsonl.profile.json', $indexName);
         $profilePath = $this->normalizePath($profilePath);
 
-        $profile  = null;
+        $profile = null;
         $settings = null;
-        $config   = null;
-        $index    = null;
+        $config = null;
+        $index = null;
 
         // We only need profile/settings/config when publishing Twig and/or Liquid
         if ($publish || $liquid) {
             if (!is_file($profilePath)) {
                 $io->error(sprintf('Profile file missing: %s. Cannot generate heuristics without a Jsonl profile.', $profilePath));
+
                 return Command::FAILURE;
             }
 
             $profileRaw = file_get_contents($profilePath) ?: '';
-            $profile    = json_decode($profileRaw, true, 512, \JSON_THROW_ON_ERROR);
+            $profile = json_decode($profileRaw, true, 512, \JSON_THROW_ON_ERROR);
 
             $io->section(sprintf('Loading Meilisearch settings for index "%s"...', $indexName));
-            $client   = $this->meiliService->getMeiliClient();
-            $index    = $client->getIndex($this->meiliService->getPrefixedIndexName($indexName));
+            $client = $this->meiliService->getMeiliClient();
+            $index = $client->getIndex($this->meiliService->getPrefixedIndexName($indexName));
             $settings = $index->getSettings();
 
             [$config, $settings] = $this->buildConfigFromProfile($index, $profile, $settings);
@@ -101,8 +103,9 @@ final class CodeJsTwigCommand
 
         // 2) Generate Liquid embedder template
         if ($liquid) {
-            if ($config === null || $profile === null) {
+            if (null === $config || null === $profile) {
                 $io->error('Cannot generate Liquid template without profile and config (run with --publish or ensure profile exists).');
+
                 return Command::FAILURE;
             }
 
@@ -128,25 +131,28 @@ final class CodeJsTwigCommand
         if ($ai) {
             if (!is_file($outputPath)) {
                 $io->error(sprintf('Template file %s does not exist. Use --publish first or create it manually.', $outputPath));
+
                 return Command::FAILURE;
             }
 
             if (!$this->openaiApiKey) {
                 $io->error('OPENAI_API_KEY is not configured. Cannot use --ai without an API key.');
+
                 return Command::FAILURE;
             }
 
-            if (!class_exists(OpenAI::class)) {
+            if (!class_exists(\OpenAI::class)) {
                 $io->error('openai-php/client is missing. Run: composer require openai-php/client');
+
                 return Command::FAILURE;
             }
 
             $originalTemplate = file_get_contents($outputPath) ?: '';
-            $profileRaw       = is_file($profilePath) ? (file_get_contents($profilePath) ?: '') : '';
+            $profileRaw = is_file($profilePath) ? (file_get_contents($profilePath) ?: '') : '';
 
             $io->section(sprintf('Refining card body in %s with OpenAI…', $outputPath));
 
-            $client    = OpenAI::client($this->openaiApiKey);
+            $client = \OpenAI::client($this->openaiApiKey);
             $modelName = $modelName ?: 'gpt-4o-mini';
 
             $systemPrompt = <<<'SYS'
@@ -199,24 +205,25 @@ TXT,
                     'model' => $modelName,
                     'input' => [
                         [
-                            'role'    => 'system',
+                            'role' => 'system',
                             'content' => $systemPrompt,
                         ],
                         [
-                            'role'    => 'user',
+                            'role' => 'user',
                             'content' => $userPrompt,
                         ],
                     ],
                     'max_output_tokens' => 4096,
                 ]);
             } catch (\Throwable $e) {
-                $io->error('Error calling OpenAI: ' . $e->getMessage());
+                $io->error('Error calling OpenAI: '.$e->getMessage());
+
                 return Command::FAILURE;
             }
 
             $raw = $response->outputText;
 
-            $refined  = $this->stripCodeFences($raw);
+            $refined = $this->stripCodeFences($raw);
             $stitched = $this->stitchCardBody($originalTemplate, $refined);
 
             $this->filesystem->dumpFile($outputPath, $stitched);
@@ -246,19 +253,19 @@ TXT,
 
     private function stitchCardBody(string $original, string $refined): string
     {
-        $marker  = '<div class="card';
+        $marker = '<div class="card';
         $origPos = strpos($original, $marker);
-        $newPos  = strpos($refined,  $marker);
+        $newPos = strpos($refined, $marker);
 
-        if ($origPos === false || $newPos === false) {
+        if (false === $origPos || false === $newPos) {
             // If we can't find the marker, fallback to refined.
             return $refined;
         }
 
-        $prefix      = substr($original, 0, $origPos);
-        $refinedCard = substr($refined,  $newPos);
+        $prefix = substr($original, 0, $origPos);
+        $refinedCard = substr($refined, $newPos);
 
-        return rtrim($prefix, "\r\n") . "\n" . ltrim($refinedCard, "\r\n");
+        return rtrim($prefix, "\r\n")."\n".ltrim($refinedCard, "\r\n");
     }
 
     private function isIdLike(string $fieldName): bool
@@ -286,7 +293,7 @@ TXT,
         $camel = $first;
 
         foreach ($parts as $part) {
-            if ($part === '') {
+            if ('' === $part) {
                 continue;
             }
             $camel .= ucfirst($part);
@@ -309,20 +316,20 @@ TXT,
      */
     private function buildConfigFromProfile(object $index, array $profile, array $settings): array
     {
-        $fields        = $profile['fields'] ?? [];
+        $fields = $profile['fields'] ?? [];
         $pkFromProfile = $profile['pk'] ?? null;
 
         $primaryKey = $index->getPrimaryKey() ?? $pkFromProfile ?? 'id';
 
-        $searchable    = $settings['searchableAttributes'] ?? [];
+        $searchable = $settings['searchableAttributes'] ?? [];
         $rawFilterable = $settings['filterableAttributes'] ?? [];
 
         $profileToMeili = [];
         $meiliToProfile = [];
         foreach ($fields as $profileField => $_meta) {
-            $meiliField                     = $this->profileFieldToMeiliField($profileField);
-            $profileToMeili[$profileField]  = $meiliField;
-            $meiliToProfile[$meiliField]    = $profileField;
+            $meiliField = $this->profileFieldToMeiliField($profileField);
+            $profileToMeili[$profileField] = $meiliField;
+            $meiliToProfile[$meiliField] = $profileField;
         }
 
         $filterable = array_values(array_filter(
@@ -432,7 +439,7 @@ TXT,
         }
 
         // Tag fields
-        $tagFields    = [];
+        $tagFields = [];
         $tagNameHints = [
             'genres', 'genre',
             'tags', 'tag',
@@ -450,7 +457,7 @@ TXT,
                 continue;
             }
 
-            $meta  = $fields[$profileField] ?? null;
+            $meta = $fields[$profileField] ?? null;
             if (!$meta) {
                 continue;
             }
@@ -458,15 +465,15 @@ TXT,
             $facet = $meta['facetCandidate'] ?? false;
             $lname = strtolower($meiliField);
 
-            $isArrayish    = in_array('array', $types, true);
+            $isArrayish = in_array('array', $types, true);
             $isStringFacet = in_array('string', $types, true) && $facet;
-            $isNameHint    = in_array($lname, $tagNameHints, true);
+            $isNameHint = in_array($lname, $tagNameHints, true);
 
             $distribution = $meta['distribution']['values'] ?? null;
-            $total        = $meta['total'] ?? null;
-            $degenerate   = false;
+            $total = $meta['total'] ?? null;
+            $degenerate = false;
             if (is_array($distribution) && $total) {
-                if (count($distribution) === 1 && reset($distribution) === $total) {
+                if (1 === count($distribution) && reset($distribution) === $total) {
                     $degenerate = true;
                 }
             }
@@ -487,11 +494,11 @@ TXT,
         foreach ($fields as $profileField => $meta) {
             $key = strtolower($profileField);
             if (
-                (str_contains($key, 'image') ||
-                 str_contains($key, 'thumb') ||
-                 str_contains($key, 'poster') ||
-                 str_contains($key, 'cover')) &&
-                (($meta['storageHint'] ?? '') === 'string')
+                (str_contains($key, 'image')
+                 || str_contains($key, 'thumb')
+                 || str_contains($key, 'poster')
+                 || str_contains($key, 'cover'))
+                && (($meta['storageHint'] ?? '') === 'string')
             ) {
                 $imageField = $profileToMeili[$profileField] ?? $profileField;
                 break;
@@ -501,25 +508,25 @@ TXT,
         // Human labels
         $labels = [];
         foreach ($fields as $profileField => $_meta) {
-            $meiliField          = $profileToMeili[$profileField] ?? $profileField;
+            $meiliField = $profileToMeili[$profileField] ?? $profileField;
             $labels[$meiliField] = $this->humanizeField($meiliField);
         }
 
-        $maxLen  = 100;
+        $maxLen = 100;
         $maxList = 3;
 
         return [
             [
-                'primaryKey'       => $primaryKey,
-                'titleField'       => $titleField,
+                'primaryKey' => $primaryKey,
+                'titleField' => $titleField,
                 'descriptionField' => $descriptionField,
-                'imageField'       => $imageField,
-                'scalarFields'     => $scalarFields,
-                'tagFields'        => $tagFields,
+                'imageField' => $imageField,
+                'scalarFields' => $scalarFields,
+                'tagFields' => $tagFields,
                 'filterableFields' => $filterable,
-                'labels'           => $labels,
-                'maxLen'           => $maxLen,
-                'maxList'          => $maxList,
+                'labels' => $labels,
+                'maxLen' => $maxLen,
+                'maxList' => $maxList,
             ],
             $settings,
         ];
@@ -530,7 +537,7 @@ TXT,
      */
     private function generateJsTwigFromConfig(array $config, array $settings): string
     {
-        $configJson   = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $configJson = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $settingsJson = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         // TODO: paste your established JS-Twig template here.
@@ -543,12 +550,12 @@ TXT,
      */
     private function generateLiquidFromConfig(array $config, array $profile, string $indexName): string
     {
-        $titleField   = $config['titleField']       ?? 'title';
-        $descField    = $config['descriptionField'] ?? null;
-        $scalarFields = $config['scalarFields']     ?? [];
-        $tagFields    = $config['tagFields']        ?? [];
-        $labels       = $config['labels']           ?? [];
-        $fields       = $profile['fields']          ?? [];
+        $titleField = $config['titleField'] ?? 'title';
+        $descField = $config['descriptionField'] ?? null;
+        $scalarFields = $config['scalarFields'] ?? [];
+        $tagFields = $config['tagFields'] ?? [];
+        $labels = $config['labels'] ?? [];
+        $fields = $profile['fields'] ?? [];
 
         $lines = [];
 
@@ -560,15 +567,15 @@ TXT,
         $lines[] = '';
 
         // Title: allow for ID-ish titles (registrationNumber, etc.).
-        $lines[] = '{%- assign title = doc.' . $titleField . ' -%}';
+        $lines[] = '{%- assign title = doc.'.$titleField.' -%}';
         $lines[] = '';
         $lines[] = '# {{ title }}';
         $lines[] = '';
 
         // Description-ish block
         if ($descField) {
-            $lines[] = '{% if doc.' . $descField . ' %}';
-            $lines[] = '{{ doc.' . $descField . ' }}';
+            $lines[] = '{% if doc.'.$descField.' %}';
+            $lines[] = '{{ doc.'.$descField.' }}';
             $lines[] = '{% endif %}';
             $lines[] = '';
         }
@@ -578,13 +585,13 @@ TXT,
             // Only add section if at least one scalar exists on doc
             $condParts = [];
             foreach ($scalarFields as $sf) {
-                $condParts[] = 'doc.' . $sf;
+                $condParts[] = 'doc.'.$sf;
             }
-            $lines[] = '{% if ' . implode(' or ', $condParts) . ' %}';
+            $lines[] = '{% if '.implode(' or ', $condParts).' %}';
             $lines[] = '## Details';
             foreach ($scalarFields as $sf) {
                 $label = $labels[$sf] ?? $sf;
-                $lines[] = '{% if doc.' . $sf . ' %}' . $label . ': {{ doc.' . $sf . ' }}{% endif %}';
+                $lines[] = '{% if doc.'.$sf.' %}'.$label.': {{ doc.'.$sf.' }}{% endif %}';
             }
             $lines[] = '{% endif %}';
             $lines[] = '';
@@ -595,22 +602,22 @@ TXT,
             $label = $labels[$tf] ?? $tf;
             $lower = strtolower($tf);
 
-            $lines[] = '{% if doc.' . $tf . ' %}';
-            $lines[] = '## ' . $label;
+            $lines[] = '{% if doc.'.$tf.' %}';
+            $lines[] = '## '.$label;
 
             // Heuristic: split pipe-delimited fields like keywords/subject
             if (in_array($lower, ['keywords', 'subject', 'subjects'], true)) {
-                $lines[] = '{% assign values = doc.' . $tf . ' | split: "|" %}';
+                $lines[] = '{% assign values = doc.'.$tf.' | split: "|" %}';
                 $lines[] = '{{ values | join: " | " }}';
             } else {
-                $lines[] = '{{ doc.' . $tf . ' }}';
+                $lines[] = '{{ doc.'.$tf.' }}';
             }
 
             $lines[] = '{% endif %}';
             $lines[] = '';
         }
 
-        return implode("\n", $lines) . "\n";
+        return implode("\n", $lines)."\n";
     }
 
     private function normalizePath(string $path): string
@@ -619,6 +626,6 @@ TXT,
             return $path;
         }
 
-        return $this->projectDir . '/' . ltrim($path, '/');
+        return $this->projectDir.'/'.ltrim($path, '/');
     }
 }

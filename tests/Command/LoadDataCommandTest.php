@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle\Tests\Command;
 
 use Symfony\Bundle\FrameworkBundle\Console\Application;
@@ -17,7 +19,7 @@ class LoadDataCommandTest extends KernelTestCase
         $commandTester = new CommandTester($command);
         $commandTester->execute([
             'name' => 'App\\Controller\\TestController',
-            '--route-name' => "test"
+            '--route-name' => 'test',
             // prefix the key with two dashes when passing options,
             // e.g: '--some-option' => 'option_value',
             // use brackets for testing array value,

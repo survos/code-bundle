@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle\Command;
 
 use Doctrine\Common\Collections\ArrayCollection;
@@ -10,7 +12,6 @@ use PhpParser\Node;
 use PhpParser\Node\Stmt\Class_;
 use PhpParser\Node\Stmt\Namespace_;
 use PhpParser\ParserFactory;
-use ReflectionClass;
 use Survos\CodeBundle\Service\GeneratorService;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -65,6 +66,7 @@ final class MakeRelation
         $type = strtolower(trim($type));
         if (!in_array($type, ['many-to-one', 'manytoone'], true)) {
             $io->error('Only "many-to-one" is supported right now.');
+
             return Command::INVALID;
         }
 
@@ -75,10 +77,11 @@ final class MakeRelation
         try {
             $owning = $this->resolveEntityClass($owning);
             $inverse = $this->resolveEntityClass($inverse);
-            $owningRef  = new ReflectionClass(ltrim($owning, '\\'));
-            $inverseRef = new ReflectionClass(ltrim($inverse, '\\'));
+            $owningRef = new \ReflectionClass(ltrim($owning, '\\'));
+            $inverseRef = new \ReflectionClass(ltrim($inverse, '\\'));
         } catch (\Throwable $e) {
-            $io->error('Both classes must exist and be autoloadable. ' . $e->getMessage());
+            $io->error('Both classes must exist and be autoloadable. '.$e->getMessage());
+
             return Command::FAILURE;
         }
 
@@ -87,51 +90,55 @@ final class MakeRelation
         $inflector = InflectorFactory::create()->build();
         $inversedBy ??= lcfirst($inflector->pluralize($owningRef->getShortName()));
 
-        $owningPath  = $owningRef->getFileName();
+        $owningPath = $owningRef->getFileName();
         $inversePath = $inverseRef->getFileName();
         if (!$owningPath || !$inversePath) {
             $io->error('Could not resolve file paths for one or both classes.');
+
             return Command::FAILURE;
         }
 
         // Parse files
         $parser = (new ParserFactory())->createForNewestSupportedVersion();
 
-        $owningCode  = file_get_contents($owningPath) ?: '';
+        $owningCode = file_get_contents($owningPath) ?: '';
         $inverseCode = file_get_contents($inversePath) ?: '';
 
         try {
-            $owningAst  = $parser->parse($owningCode);
+            $owningAst = $parser->parse($owningCode);
             $inverseAst = $parser->parse($inverseCode);
         } catch (\PhpParser\Error $e) {
-            $io->error('Parse error: ' . $e->getMessage());
+            $io->error('Parse error: '.$e->getMessage());
+
             return Command::FAILURE;
         }
 
-        $owningClass  = $this->findFirstClass($owningAst);
+        $owningClass = $this->findFirstClass($owningAst);
         $inverseClass = $this->findFirstClass($inverseAst);
         if (!$owningClass || !$inverseClass) {
             $io->error('Could not find class nodes.');
+
             return Command::FAILURE;
         }
 
         // Imports
-        $this->ensureUseFromClass($owningAst, \Doctrine\ORM\Mapping\ManyToOne::class, alias: 'ORM');
-        $this->ensureUseFromClass($inverseAst, \Doctrine\ORM\Mapping\OneToMany::class, alias: 'ORM');
-        $this->ensureUseFromClass($inverseAst, \Doctrine\Common\Collections\Collection::class);
-        $this->ensureUseFromClass($inverseAst, \Doctrine\Common\Collections\ArrayCollection::class);
+        $this->ensureUseFromClass($owningAst, ORM\ManyToOne::class, alias: 'ORM');
+        $this->ensureUseFromClass($inverseAst, ORM\OneToMany::class, alias: 'ORM');
+        $this->ensureUseFromClass($inverseAst, Collection::class);
+        $this->ensureUseFromClass($inverseAst, ArrayCollection::class);
 
         // Presence checks
-        $owningHasField  = $this->classHasProperty($owningClass, $field);
+        $owningHasField = $this->classHasProperty($owningClass, $field);
         $inverseHasField = $this->classHasProperty($inverseClass, $inversedBy);
 
         if (($owningHasField || $inverseHasField) && !$force) {
             $io->warning('One or both target properties already exist. Use --force to overwrite.');
+
             return Command::INVALID;
         }
 
         // Build snippets to match your expected output exactly
-        $owningShort  = $owningRef->getShortName();   // e.g. Comment
+        $owningShort = $owningRef->getShortName();   // e.g. Comment
         $inverseShort = $inverseRef->getShortName();  // e.g. Article
 
         $owningPropSnippet = $this->renderOwningProperty(
@@ -148,7 +155,7 @@ final class MakeRelation
         );
 
         // Inject
-        $newOwningCode  = $this->injectSnippetIntoClassSource($owningCode, $owningClass, $owningPropSnippet, replaceProperty: $owningHasField ? $field : null);
+        $newOwningCode = $this->injectSnippetIntoClassSource($owningCode, $owningClass, $owningPropSnippet, replaceProperty: $owningHasField ? $field : null);
         $newInverseCode = $this->injectSnippetIntoClassSource($inverseCode, $inverseClass, $inverseBlockSnippet, replaceProperty: $inverseHasField ? $inversedBy : null);
 
         // Write back
@@ -171,7 +178,7 @@ final class MakeRelation
         string $field,
         string $targetShort,
         string $inversedBy,
-        bool $nullable
+        bool $nullable,
     ): string {
         $type = $nullable ? "?{$targetShort}" : $targetShort;
         $nullableFlag = $nullable ? 'true' : 'false';
@@ -188,7 +195,7 @@ PHP;
     private function renderInverseBlock(
         string $collectionName,
         string $elementShort,
-        string $mappedBy
+        string $mappedBy,
     ): string {
         $ucCollection = ucfirst($collectionName);
         $varName = lcfirst($elementShort);
@@ -239,20 +246,21 @@ PHP;
     {
         // (Optional) remove an existing property block by name
         if ($replaceProperty) {
-            $propPattern = '/\\n\\s*(?:\\/\\*\\*.*?\\*\\/\\s*)?(?:#[^\\n]*\\n\\s*)*(public|protected|private)\\s+[^\\n]*\\$' . preg_quote($replaceProperty, '/') . '\\b[^{;]*?(?:\\{.*?\\}|;)/s';
+            $propPattern = '/\\n\\s*(?:\\/\\*\\*.*?\\*\\/\\s*)?(?:#[^\\n]*\\n\\s*)*(public|protected|private)\\s+[^\\n]*\\$'.preg_quote($replaceProperty, '/').'\\b[^{;]*?(?:\\{.*?\\}|;)/s';
             $code = preg_replace($propPattern, "\n", $code) ?? $code;
         }
 
         $classStart = $classNode->getStartFilePos();
-        $classEnd   = $classNode->getEndFilePos();
+        $classEnd = $classNode->getEndFilePos();
         $classChunk = substr($code, $classStart, $classEnd - $classStart + 1);
 
         // Insert before the final "}" of the class
-        $inserted = preg_replace('/}\\s*$/', rtrim("\n" . $snippet) . "\n}\n", $classChunk, 1);
+        $inserted = preg_replace('/}\\s*$/', rtrim("\n".$snippet)."\n}\n", $classChunk, 1);
         if (!$inserted) {
-            return rtrim($code) . "\n\n" . $snippet . "\n";
+            return rtrim($code)."\n\n".$snippet."\n";
         }
-        return substr($code, 0, $classStart) . $inserted . substr($code, $classEnd + 1);
+
+        return substr($code, 0, $classStart).$inserted.substr($code, $classEnd + 1);
     }
 
     private function findFirstClass(array $ast): ?Class_
@@ -268,6 +276,7 @@ PHP;
                 return $node;
             }
         }
+
         return null;
     }
 
@@ -280,6 +289,7 @@ PHP;
                 }
             }
         }
+
         return false;
     }
 
@@ -291,8 +301,8 @@ PHP;
                     if ($stmt instanceof Node\Stmt\Use_) {
                         foreach ($stmt->uses as $useUse) {
                             $sameNs = $useUse->name->toString() === ltrim($namespace, '\\');
-                            $sameAlias = ($alias === null && $useUse->alias === null)
-                                || ($alias !== null && $useUse->alias?->toString() === $alias);
+                            $sameAlias = (null === $alias && null === $useUse->alias)
+                                || (null !== $alias && $useUse->alias?->toString() === $alias);
                             if ($sameNs && $sameAlias) {
                                 return;
                             }
@@ -304,6 +314,7 @@ PHP;
                     new Node\Stmt\UseUse(new Node\Name(ltrim($namespace, '\\')), $alias ? new Node\Identifier($alias) : null),
                 ]);
                 array_unshift($node->stmts, $use);
+
                 return;
             }
         }
@@ -326,15 +337,15 @@ PHP;
         $raw = trim($input);
         $candidates = [];
         $candidates[] = ltrim($raw, '\\');
-        $candidates[] = '\\' . ltrim($raw, '\\');
+        $candidates[] = '\\'.ltrim($raw, '\\');
 
         if (!str_contains($raw, '\\')) {
             $base = ltrim($raw, '\\');
             $ucfirst = ucfirst($base);
-            $candidates[] = $defaultNs . '\\' . $base;
-            $candidates[] = $defaultNs . '\\' . $ucfirst;
-            $candidates[] = '\\' . $defaultNs . '\\' . $base;
-            $candidates[] = '\\' . $defaultNs . '\\' . $ucfirst;
+            $candidates[] = $defaultNs.'\\'.$base;
+            $candidates[] = $defaultNs.'\\'.$ucfirst;
+            $candidates[] = '\\'.$defaultNs.'\\'.$base;
+            $candidates[] = '\\'.$defaultNs.'\\'.$ucfirst;
         }
 
         $seen = [];
@@ -346,14 +357,10 @@ PHP;
             $seen[$norm] = true;
 
             if (class_exists($norm)) {
-                return '\\' . $norm;
+                return '\\'.$norm;
             }
         }
 
-        throw new \InvalidArgumentException(sprintf(
-            'Could not resolve entity class for "%s". Tried: %s',
-            $input,
-            implode(', ', array_map(fn($c) => '\\' . ltrim($c, '\\'), array_keys($seen)))
-        ));
+        throw new \InvalidArgumentException(sprintf('Could not resolve entity class for "%s". Tried: %s', $input, implode(', ', array_map(fn ($c) => '\\'.ltrim($c, '\\'), array_keys($seen)))));
     }
 }

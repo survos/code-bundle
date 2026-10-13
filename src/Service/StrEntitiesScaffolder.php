@@ -1,11 +1,12 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\CodeBundle\Service;
 
+use Nette\PhpGenerator\Attribute as GenAttribute;
 use Nette\PhpGenerator\PhpFile;
 use Nette\PhpGenerator\PsrPrinter;
-use Nette\PhpGenerator\Attribute as GenAttribute;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 
@@ -19,7 +20,8 @@ final class StrEntitiesScaffolder
         private readonly LoggerInterface $logger,
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
         private readonly string $baseNamespace = 'App', // change if your app namespace differs
-    ) {}
+    ) {
+    }
 
     /**
      * Create Str & StrTranslation entity + repo if missing.
@@ -33,17 +35,17 @@ final class StrEntitiesScaffolder
 
         // target FQCNs
         $strEntityFqcn = $this->baseNamespace.'\\Entity\\Str';
-        $strRepoFqcn   = $this->baseNamespace.'\\Repository\\StrRepository';
+        $strRepoFqcn = $this->baseNamespace.'\\Repository\\StrRepository';
 
-        $stEntityFqcn  = $this->baseNamespace.'\\Entity\\StrTranslation';
-        $stRepoFqcn    = $this->baseNamespace.'\\Repository\\StrTranslationRepository';
+        $stEntityFqcn = $this->baseNamespace.'\\Entity\\StrTranslation';
+        $stRepoFqcn = $this->baseNamespace.'\\Repository\\StrTranslationRepository';
 
         // target paths
         $strEntityPath = $this->projectDir.'/src/Entity/Str.php';
-        $strRepoPath   = $this->projectDir.'/src/Repository/StrRepository.php';
+        $strRepoPath = $this->projectDir.'/src/Repository/StrRepository.php';
 
-        $stEntityPath  = $this->projectDir.'/src/Entity/StrTranslation.php';
-        $stRepoPath    = $this->projectDir.'/src/Repository/StrTranslationRepository.php';
+        $stEntityPath = $this->projectDir.'/src/Entity/StrTranslation.php';
+        $stRepoPath = $this->projectDir.'/src/Repository/StrTranslationRepository.php';
 
         // ensure dirs exist
         $this->mkdirp(\dirname($strEntityPath));
@@ -111,7 +113,7 @@ final class StrEntitiesScaffolder
         string $shortClass,
         string $repoFqcn,
         string $tableName,
-        string $baseFqcn
+        string $baseFqcn,
     ): string {
         $file = new PhpFile();
         $file->setStrictTypes();
@@ -186,6 +188,7 @@ final class StrEntitiesScaffolder
     private function rel(string $absolute): string
     {
         $prefix = rtrim($this->projectDir, '/').'/';
+
         return str_starts_with($absolute, $prefix) ? substr($absolute, \strlen($prefix)) : $absolute;
     }
 

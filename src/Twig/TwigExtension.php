@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle\Twig;
 
 use Twig\Extension\AbstractExtension;
@@ -8,8 +10,8 @@ use Twig\TwigFunction;
 
 class TwigExtension extends AbstractExtension
 {
-
-    public function __construct(private array $config) {
+    public function __construct(private array $config)
+    {
     }
 
     public function getFilters(): array
@@ -17,14 +19,14 @@ class TwigExtension extends AbstractExtension
         return [
             // If your filter generates SAFE HTML, add ['is_safe' => ['html']]
             // Reference: https://twig.symfony.com/doc/3.x/advanced.html#automatic-escaping
-            new TwigFilter('filter_name', fn(string $s) => '@todo: filter ' . $s),
+            new TwigFilter('filter_name', fn (string $s) => '@todo: filter '.$s),
         ];
     }
 
     public function getFunctions(): array
     {
         return [
-//            new TwigFunction('function_name', [::class, 'doSomething']),
+            //            new TwigFunction('function_name', [::class, 'doSomething']),
         ];
     }
 }

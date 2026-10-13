@@ -1,18 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle\Command;
 
 use Doctrine\ORM\EntityManagerInterface;
-use Nette\PhpGenerator\ClassManipulator;
 use Nette\PhpGenerator\ClassType;
 use Nette\PhpGenerator\Method;
+use Nette\PhpGenerator\PhpFile;
 use Nette\PhpGenerator\PhpNamespace;
-use Nette\PhpGenerator\Type;
 use Psr\Log\LoggerInterface;
-use Survos\Bundle\MakerBundle\Service\MakerService;
 use Survos\CodeBundle\Service\GeneratorService;
-use Symfony\Bridge\Twig\Attribute\Template;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -21,17 +19,9 @@ use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use Symfony\Component\DependencyInjection\Attribute\Target;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+
 use function Symfony\Component\String\u;
-
-use Nette\PhpGenerator\PsrPrinter;
-
-use Nette\PhpGenerator\PhpFile;
 
 // removed until nullable string options are allowed again
 #[AsCommand('code:constructor', 'inject dependencies into a constructor', aliases: ['_construct'])]
@@ -44,57 +34,56 @@ final class MakeConstructor extends BaseMaker
     private string $className;
     private string $FqClassName;
     private Method $constructorMethod;
-    //filename
+    // filename
     private string $filename;
-//    public function __construct(
-//        protected GeneratorService $generatorService,
-//        #[Autowire('%kernel.project_dir%')] protected string $projectDir,
-//    )
-//    {
-//    }
+    //    public function __construct(
+    //        protected GeneratorService $generatorService,
+    //        #[Autowire('%kernel.project_dir%')] protected string $projectDir,
+    //    )
+    //    {
+    //    }
 
     public function __invoke(
         SymfonyStyle $io,
-        #[Argument(description: "filename of the EXISTING class, e.g. TestCommand")]
-        string       $shortClassName,
+        #[Argument(description: 'filename of the EXISTING class, e.g. TestCommand')]
+        string $shortClassName,
 
-        #[Argument(description: "initial category, e.g. em")]
-        ?string      $category = null,
+        #[Argument(description: 'initial category, e.g. em')]
+        ?string $category = null,
 
         #[Option(description: 'namespace to use (detect based on name, e.g. TextCommand = App\\Command)', shortcut: 'ns')]
-        ?string      $namespace = null,
+        ?string $namespace = null,
 
-        #[Option(description: "Overwrite the file if it exists")]
-        ?bool        $force = null
-    ): int
-    {
+        #[Option(description: 'Overwrite the file if it exists')]
+        ?bool $force = null,
+    ): int {
         if (!$namespace) {
             $namespace = match (true) {
                 str_ends_with($shortClassName, 'Service') => 'App\\Service',
                 str_ends_with($shortClassName, 'Workflow') => 'App\\Workflow',
                 str_ends_with($shortClassName, 'Command') => 'App\\Command',
                 str_ends_with($shortClassName, 'Controller') => 'App\\Controller',
-                default => throw new \Exception("namespace must be explicitly passed.")
+                default => throw new \Exception('namespace must be explicitly passed.'),
             };
         }
         $this->phpNamespace = new PhpNamespace($namespace);
 
-        $class = $namespace . '\\' . $shortClassName;
+        $class = $namespace.'\\'.$shortClassName;
 
         $this->FqClassName = $class;
 
         $path = $this->generatorService->namespaceToPath($namespace, $this->projectDir);
 
         $this->className = $shortClassName;
-        $filename = $path . '/' . $shortClassName . '.php';
+        $filename = $path.'/'.$shortClassName.'.php';
         $this->filename = $filename;
         // foreach (explode(':', $filename) as $part) {
         //     $filename .= u($part)->title();
         // }
-        //$filename .= '.php';
-        //dd($path,$class,$shortClassName,$filename);
+        // $filename .= '.php';
+        // dd($path,$class,$shortClassName,$filename);
         assert(file_exists($filename), "File $filename does not exist");
-        //dd($filename);
+        // dd($filename);
 
         $file = PhpFile::fromCode(file_get_contents($filename));
         $namespaces = $file->getNamespaces();
@@ -116,29 +105,27 @@ final class MakeConstructor extends BaseMaker
             'app' => 'application services',
             'workflows' => 'workflows',
             'data' => 'data manipulation (csv, json)',
-            '' => "exit"
+            '' => 'exit',
         ]);
-
 
         while ($category || ($category = $io->askQuestion($categories))) {
             $this->$category($io, $constructor, $existingNs);
-//            $io->writeln((string) $existingNs);
-//            $printer = new CustomPrettyPrinter();
-//            $newCode = $printer->prettyPrintFile($modifiedAst);
-            file_put_contents($this->filename, "<?php\n\n" . $existingNs);
+            //            $io->writeln((string) $existingNs);
+            //            $printer = new CustomPrettyPrinter();
+            //            $newCode = $printer->prettyPrintFile($modifiedAst);
+            file_put_contents($this->filename, "<?php\n\n".$existingNs);
             // reload the file
             [$existingClass, $existingNs, $filename] =
                 $this->getClass($existingNs->getName(), $shortClassName, $this->filename);
             // at this point, it should always exist
             $constructor = $existingClass->getMethod('__construct');
-//            $io->writeln((string)$constructor);
+            //            $io->writeln((string)$constructor);
             if ($io->isVerbose()) {
                 $io->writeln($existingNs);
             }
-//            $io->success($category . ' now.');
+            //            $io->success($category . ' now.');
             $category = null;
         }
-
 
         return Command::SUCCESS;
     }
@@ -149,12 +136,12 @@ final class MakeConstructor extends BaseMaker
         $options[] = HttpClientInterface::class;
         $options[] = LoggerInterface::class;
         $options[] = EntityManagerInterface::class;
-//        $options = [...$options, iterator_to_array($this->generatorService->getWorkflows())];
+        //        $options = [...$options, iterator_to_array($this->generatorService->getWorkflows())];
         foreach ($options as $option) {
             $shortName = new \ReflectionClass($option)->getShortName();
             $keyedOptions[lcfirst($shortName)] = $option;
         }
-        $entityClasses = $io->askQuestion(new ChoiceQuestion("please select",
+        $entityClasses = $io->askQuestion(new ChoiceQuestion('please select',
             $keyedOptions)
             ->setMultiselect(true)
         );
@@ -172,6 +159,7 @@ final class MakeConstructor extends BaseMaker
 
             $ns->addUse($entityClass);
         }
+
         return [];
     }
 
@@ -183,21 +171,19 @@ final class MakeConstructor extends BaseMaker
             $table->addRow([$param->getName(), $param->getType()]);
         }
         $table->render();
-
     }
 
     private function workflows(SymfonyStyle $io): mixed
     {
-        $entityClass = $io->askQuestion(new ChoiceQuestion("select a workflow class",
+        $entityClass = $io->askQuestion(new ChoiceQuestion('select a workflow class',
             iterator_to_array($this->generatorService->getWorkflows())));
-        $io->warning("@todo: add the #[Target] parameter to the constructor " . $entityClass);
+        $io->warning('@todo: add the #[Target] parameter to the constructor '.$entityClass);
+
         return [];
     }
-
 
     private function askEntities(): array
     {
         return $this->generatorService->getAllDoctrineEntitiesFqcn();
     }
-
 }

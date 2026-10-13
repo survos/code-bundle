@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 // File: src/Command/CodeEntityCommand.php
@@ -17,7 +18,6 @@ use ApiPlatform\Metadata\ApiProperty;
 use ApiPlatform\Metadata\ApiResource;
 use ApiPlatform\Metadata\Get;
 use ApiPlatform\Metadata\GetCollection;
-use DateTimeImmutable;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping\Column;
 use Doctrine\ORM\Mapping\Entity;
@@ -27,13 +27,13 @@ use Nette\PhpGenerator\Literal;
 use Nette\PhpGenerator\PhpFile;
 use Nette\PhpGenerator\PhpNamespace;
 use Nette\PhpGenerator\Visibility;
-use Survos\Lingua\Contracts\Attribute\Translatable;
 use Survos\CodeBundle\Service\GeneratorService;
+use Survos\DataContracts\Path\DataPaths;
 use Survos\FieldBundle\Attribute\Field;
 use Survos\FieldBundle\Enum\Widget;
-use Survos\DataContracts\Path\DataPaths;
 use Survos\JsonlBundle\Model\FieldStats;
 use Survos\JsonlBundle\Model\JsonlProfile;
+use Survos\Lingua\Contracts\Attribute\Translatable;
 use Survos\MeiliBundle\Metadata\MeiliIndex;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -42,6 +42,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Filesystem\Filesystem;
 use Symfony\Component\Serializer\Attribute\Groups;
+
 use function Symfony\Component\String\u;
 
 #[AsCommand('code:entity', 'Generate a Doctrine entity from a Jsonl profile (no CSV/JSON/STDIN).')]
@@ -80,28 +81,31 @@ final class CodeEntityCommand
         #[Option('Overwrite existing files without confirmation', name: 'force')]
         bool $force = false,
     ): int {
-        $io->title('Entity generator (profile-only) — ' . $this->projectDir);
+        $io->title('Entity generator (profile-only) — '.$this->projectDir);
 
-        if (($profileFile === null || $profileFile === '') && $dataset !== null && $dataset !== '') {
-            if ($this->dataPaths === null) {
+        if ((null === $profileFile || '' === $profileFile) && null !== $dataset && '' !== $dataset) {
+            if (null === $this->dataPaths) {
                 $io->error(\sprintf(
-                    'Missing profile path. You passed --dataset=%s, but no DataPaths service is registered. ' .
+                    'Missing profile path. You passed --dataset=%s, but no DataPaths service is registered. '.
                     'Configure DataPaths or pass an explicit profile path.',
                     $dataset
                 ));
+
                 return Command::FAILURE;
             }
 
-            $profileFile = $this->dataPaths->stageDir($dataset, 'normalize') . '/obj.profile.json';
+            $profileFile = $this->dataPaths->stageDir($dataset, 'normalize').'/obj.profile.json';
         }
 
-        if ($profileFile === null || $profileFile === '') {
+        if (null === $profileFile || '' === $profileFile) {
             $io->error('Missing profile path. Provide the profile file or pass --dataset.');
+
             return Command::FAILURE;
         }
 
         if (!\is_file($profileFile)) {
             $io->error(\sprintf('Profile file "%s" does not exist.', $profileFile));
+
             return Command::FAILURE;
         }
 
@@ -109,15 +113,17 @@ final class CodeEntityCommand
         // Load profile JSON
         // ---------------------------------------------------------------------
         try {
-            $raw     = (string) \file_get_contents($profileFile);
+            $raw = (string) \file_get_contents($profileFile);
             $decoded = \json_decode($raw, true, 512, \JSON_THROW_ON_ERROR);
         } catch (\Throwable $e) {
             $io->error(\sprintf('Failed to read/parse profile "%s": %s', $profileFile, $e->getMessage()));
+
             return Command::FAILURE;
         }
 
         if (!\is_array($decoded)) {
             $io->error('Profile JSON did not decode to an array.');
+
             return Command::FAILURE;
         }
 
@@ -125,15 +131,17 @@ final class CodeEntityCommand
             $profile = JsonlProfile::fromArray($decoded);
         } catch (\Throwable $e) {
             $io->error(\sprintf('Failed to hydrate JsonlProfile from "%s": %s', $profileFile, $e->getMessage()));
+
             return Command::FAILURE;
         }
 
-        if (!\is_array($profile->fields) || $profile->fields === []) {
+        if (!\is_array($profile->fields) || [] === $profile->fields) {
             $io->error('Profile has no fields. Aborting.');
+
             return Command::FAILURE;
         }
 
-        $fieldNames   = \array_keys($profile->fields);
+        $fieldNames = \array_keys($profile->fields);
         $uniqueFields = $decoded['uniqueFields'] ?? [];
         if (!\is_array($uniqueFields)) {
             $uniqueFields = [];
@@ -143,16 +151,17 @@ final class CodeEntityCommand
         // Determine entity namespace + class name from FQCN
         // ---------------------------------------------------------------------
         $pos = \strrpos($entityFqcn, '\\');
-        if ($pos === false) {
-            $entityFqcn = ($dto ? 'App\\Index\\' : 'App\\Entity\\') . $entityFqcn;
+        if (false === $pos) {
+            $entityFqcn = ($dto ? 'App\\Index\\' : 'App\\Entity\\').$entityFqcn;
             $pos = \strrpos($entityFqcn, '\\');
         }
 
         $entityNamespace = \substr($entityFqcn, 0, $pos);
-        $entityName      = \substr($entityFqcn, $pos + 1);
+        $entityName = \substr($entityFqcn, $pos + 1);
 
-        if ($entityName === '') {
+        if ('' === $entityName) {
             $io->error(\sprintf('Invalid entity FQCN "%s".', $entityFqcn));
+
             return Command::FAILURE;
         }
 
@@ -163,41 +172,44 @@ final class CodeEntityCommand
         if (!$dto) {
             $repoNamespace = \str_contains($entityNamespace, '\\Entity')
                 ? \str_replace('\\Entity', '\\Repository', $entityNamespace)
-                : $entityNamespace . '\\Repository';
+                : $entityNamespace.'\\Repository';
 
-            $repoClass = $entityName . 'Repository';
-            $repoFqcn  = $repoNamespace . '\\' . $repoClass;
+            $repoClass = $entityName.'Repository';
+            $repoFqcn = $repoNamespace.'\\'.$repoClass;
         }
 
         // ---------------------------------------------------------------------
         // Primary key selection (profile.uniqueFields / --pk only, no heuristics)
         // ---------------------------------------------------------------------
-        if ($primaryField !== null) {
+        if (null !== $primaryField) {
             if (!\array_key_exists($primaryField, $profile->fields)) {
                 $io->error(\sprintf(
                     'Requested --pk="%s" not found in profile fields. Available: %s',
                     $primaryField,
                     \implode(', ', \array_keys($profile->fields))
                 ));
+
                 return Command::FAILURE;
             }
         } else {
-            if ($uniqueFields !== []) {
+            if ([] !== $uniqueFields) {
                 $primaryField = (string) $uniqueFields[0];
                 if (!\array_key_exists($primaryField, $profile->fields)) {
                     $io->error(\sprintf(
                         'Profile uniqueFields[0] = "%s" but that field is not present in profile->fields.',
                         $primaryField
                     ));
+
                     return Command::FAILURE;
                 }
             } else {
                 $io->error('No primary key specified and profile has no uniqueFields. Pass --pk=fieldName or fix the profile.');
+
                 return Command::FAILURE;
             }
         }
 
-        $pkProp             = \preg_replace('/[^a-zA-Z0-9_]/', '_', (string) $primaryField);
+        $pkProp = \preg_replace('/[^a-zA-Z0-9_]/', '_', (string) $primaryField);
         $primaryKeyProperty = u((string) $pkProp)->camel()->toString();
 
         $meili ??= true;
@@ -215,11 +227,11 @@ final class CodeEntityCommand
             $ns->addUse(Column::class);
             $ns->addUse(Id::class);
         }
-        $ns->addUse(DateTimeImmutable::class);
+        $ns->addUse(\DateTimeImmutable::class);
         if (!$dto) {
             $ns->addUse(Types::class);
         }
-        if ($repoFqcn !== null) {
+        if (null !== $repoFqcn) {
             $ns->addUse($repoFqcn);
         }
 
@@ -230,19 +242,19 @@ final class CodeEntityCommand
         $class = new ClassType($entityName);
         $class->setFinal();
         $class->addComment('@generated by code:entity from profile');
-        $class->addComment('@profile ' . $profileFile);
+        $class->addComment('@profile '.$profileFile);
 
-        if (!$dto && $repoClass !== null) {
+        if (!$dto && null !== $repoClass) {
             $class->addAttribute(Entity::class, [
-                'repositoryClass' => new Literal($repoClass . '::class'),
+                'repositoryClass' => new Literal($repoClass.'::class'),
             ]);
         }
 
         $filterable = [];
-        $sortable   = [];
+        $sortable = [];
         $searchable = [];
 
-        $code      = u($entityName)->camel()->toString();
+        $code = u($entityName)->camel()->toString();
         $readGroup = "$code.read";
 
         if ($api) {
@@ -292,7 +304,7 @@ final class CodeEntityCommand
             $property->addComment(\sprintf('Profile field "%s"', $field));
 
             $originalName = $rawFieldStats['originalName'] ?? null;
-            if (\is_string($originalName) && $originalName !== '' && $originalName !== $field) {
+            if (\is_string($originalName) && '' !== $originalName && $originalName !== $field) {
                 $property->addComment(\sprintf('@original %s', $originalName));
             }
 
@@ -302,15 +314,15 @@ final class CodeEntityCommand
 
             $property->addComment(\sprintf('@types %s (storageHint=%s)', $typesLabel, $storageHint));
 
-            $total    = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
-            $nulls    = (int) ($rawFieldStats['nulls'] ?? ($stats->nulls ?? 0));
+            $total = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
+            $nulls = (int) ($rawFieldStats['nulls'] ?? ($stats->nulls ?? 0));
             $distinct = (string) ($rawFieldStats['distinct'] ?? ($stats->distinct ?? ''));
 
             $property->addComment(\sprintf('@stats total=%d, nulls=%d, distinct=%s', $total, $nulls, $distinct));
 
             $propertyType = $phpType;
             $propertyValue = null;
-            if ($phpType === '?array' && $nulls === 0) {
+            if ('?array' === $phpType && 0 === $nulls) {
                 $propertyType = 'array';
                 $propertyValue = [];
             }
@@ -319,13 +331,13 @@ final class CodeEntityCommand
             $property->setValue($propertyValue);
 
             // Flags from profiler (raw JSON)
-            foreach (['booleanLike','urlLike','jsonLike','imageLike','naturalLanguageLike'] as $k) {
+            foreach (['booleanLike', 'urlLike', 'jsonLike', 'imageLike', 'naturalLanguageLike'] as $k) {
                 if (!empty($rawFieldStats[$k])) {
-                    $property->addComment('@' . $k . ' true');
+                    $property->addComment('@'.$k.' true');
                 }
             }
             if (!empty($rawFieldStats['localeGuess'])) {
-                $property->addComment('@localeGuess ' . (string) $rawFieldStats['localeGuess']);
+                $property->addComment('@localeGuess '.(string) $rawFieldStats['localeGuess']);
             }
 
             // Babel: mark natural-language string fields as Translatable
@@ -333,7 +345,7 @@ final class CodeEntityCommand
                 $nlLike = !empty($rawFieldStats['naturalLanguageLike']);
                 $basePhpType = \ltrim($phpType, '?');
 
-                if ($nlLike && $basePhpType === 'string') {
+                if ($nlLike && 'string' === $basePhpType) {
                     $property->addAttribute(Translatable::class);
                 }
             }
@@ -341,7 +353,7 @@ final class CodeEntityCommand
             // PK / Column
             $isPk = ($field === $primaryField);
             $nullable = !$isPk;
-            if ($propertyType === 'array' && $nulls === 0) {
+            if ('array' === $propertyType && 0 === $nulls) {
                 $nullable = false;
             }
             $ormArgs['nullable'] = $nullable;
@@ -371,25 +383,25 @@ final class CodeEntityCommand
             // -----------------------------------------------------------------
             // Derive profile flags (used by both Meili constants and #[Field])
             // -----------------------------------------------------------------
-            $lower        = \strtolower($field);
-            $basePhpType  = \ltrim($phpType, '?');
-            $isArrayField = ($basePhpType === 'array');
-            $isIntField   = ($basePhpType === 'int');
-            $isFloatField = ($basePhpType === 'float');
-            $isUnique     = $isPk || \in_array($field, $uniqueFields, true) || \str_contains($lower, 'id');
+            $lower = \strtolower($field);
+            $basePhpType = \ltrim($phpType, '?');
+            $isArrayField = ('array' === $basePhpType);
+            $isIntField = ('int' === $basePhpType);
+            $isFloatField = ('float' === $basePhpType);
+            $isUnique = $isPk || \in_array($field, $uniqueFields, true) || \str_contains($lower, 'id');
 
             $facetCandidate = !empty($rawFieldStats['facetCandidate'])
                 || (\method_exists($stats, 'isFacetCandidate') && $stats->isFacetCandidate());
             $booleanLike = !empty($rawFieldStats['booleanLike'])
                 || (\method_exists($stats, 'isBooleanLike') && $stats->isBooleanLike());
-            $nlLike    = !empty($rawFieldStats['naturalLanguageLike']);
-            $urlLike   = !empty($rawFieldStats['urlLike']);
-            $jsonLike  = !empty($rawFieldStats['jsonLike']);
+            $nlLike = !empty($rawFieldStats['naturalLanguageLike']);
+            $urlLike = !empty($rawFieldStats['urlLike']);
+            $jsonLike = !empty($rawFieldStats['jsonLike']);
             $imageLike = !empty($rawFieldStats['imageLike']);
 
-            $totalCount    = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
+            $totalCount = (int) ($rawFieldStats['total'] ?? ($stats->total ?? 0));
             $distinctCount = (int) ($rawFieldStats['distinct'] ?? ($stats->distinct ?? 0));
-            $isPayloadish    = $this->isPayloadishField($lower, $urlLike, $imageLike, $jsonLike);
+            $isPayloadish = $this->isPayloadishField($lower, $urlLike, $imageLike, $jsonLike);
             $highCardinality = $this->isHighCardinality($totalCount, $distinctCount);
 
             // -----------------------------------------------------------------
@@ -398,7 +410,7 @@ final class CodeEntityCommand
             if ($field) {
                 $fieldArgs = [];
 
-                $isSearchable = $basePhpType === 'string' && $nlLike && !$isPayloadish
+                $isSearchable = 'string' === $basePhpType && $nlLike && !$isPayloadish
                     && !$facetCandidate && !$booleanLike && !$urlLike && !$jsonLike && !$imageLike
                     && !\str_contains($lower, 'id') && !\str_contains($lower, 'code');
 
@@ -409,11 +421,21 @@ final class CodeEntityCommand
 
                 $isFacet = $facetCandidate && !$isPayloadish && !$highCardinality;
 
-                if ($isSearchable)  { $fieldArgs['searchable']  = true; }
-                if ($isFilterable)  { $fieldArgs['filterable']  = true; }
-                if ($isSortable)    { $fieldArgs['sortable']    = true; }
-                if ($isFacet)       { $fieldArgs['facet']       = true; }
-                if ($isPayloadish)  { $fieldArgs['visible']     = false; }
+                if ($isSearchable) {
+                    $fieldArgs['searchable'] = true;
+                }
+                if ($isFilterable) {
+                    $fieldArgs['filterable'] = true;
+                }
+                if ($isSortable) {
+                    $fieldArgs['sortable'] = true;
+                }
+                if ($isFacet) {
+                    $fieldArgs['facet'] = true;
+                }
+                if ($isPayloadish) {
+                    $fieldArgs['visible'] = false;
+                }
 
                 if ($booleanLike) {
                     $fieldArgs['widget'] = new Literal('Widget::Boolean');
@@ -432,7 +454,6 @@ final class CodeEntityCommand
             // Meili: generate sane defaults
             // -----------------------------------------------------------------
             if ($meili) {
-
                 // FILTERABLE
                 // - Never facet payload-ish or high-cardinality fields (URLs, JSON blobs, per-row identifiers, etc.)
                 // - Allow booleans/enums and *low-cardinality* facet candidates
@@ -469,7 +490,7 @@ final class CodeEntityCommand
 
                 // SEARCHABLE (natural language strings only; exclude payload-ish)
                 if (
-                    $basePhpType === 'string'
+                    'string' === $basePhpType
                     && $nlLike
                     && !$isPayloadish
                     && !$facetCandidate
@@ -486,25 +507,25 @@ final class CodeEntityCommand
         }
 
         $filterable = \array_values(\array_unique($filterable));
-        $sortable   = \array_values(\array_unique($sortable));
+        $sortable = \array_values(\array_unique($sortable));
         $searchable = \array_values(\array_unique($searchable));
 
         $class->addConstant('FILTERABLE_FIELDS', $filterable)->setPublic();
-        $class->addConstant('SORTABLE_FIELDS',   $sortable)->setPublic();
+        $class->addConstant('SORTABLE_FIELDS', $sortable)->setPublic();
         $class->addConstant('SEARCHABLE_FIELDS', $searchable)->setPublic();
 
         if ($api) {
             $class->addAttribute(ApiFilter::class, [
-                'filterClass' => new Literal('\\' . SearchFilter::class . '::class'),
-                'properties'  => new Literal('self::FILTERABLE_FIELDS'),
+                'filterClass' => new Literal('\\'.SearchFilter::class.'::class'),
+                'properties' => new Literal('self::FILTERABLE_FIELDS'),
             ]);
             $class->addAttribute(ApiFilter::class, [
-                'filterClass' => new Literal('\\' . SearchFilter::class . '::class'),
-                'properties'  => new Literal('self::SEARCHABLE_FIELDS'),
+                'filterClass' => new Literal('\\'.SearchFilter::class.'::class'),
+                'properties' => new Literal('self::SEARCHABLE_FIELDS'),
             ]);
             $class->addAttribute(ApiFilter::class, [
-                'filterClass' => new Literal('\\' . OrderFilter::class . '::class'),
-                'properties'  => new Literal('self::SORTABLE_FIELDS'),
+                'filterClass' => new Literal('\\'.OrderFilter::class.'::class'),
+                'properties' => new Literal('self::SORTABLE_FIELDS'),
             ]);
         }
 
@@ -513,7 +534,7 @@ final class CodeEntityCommand
             $class->addAttribute(MeiliIndex::class, [
                 'primaryKey' => $primaryKeyProperty,
                 'filterable' => new Literal('self::FILTERABLE_FIELDS'),
-                'sortable'   => new Literal('self::SORTABLE_FIELDS'),
+                'sortable' => new Literal('self::SORTABLE_FIELDS'),
                 'searchable' => new Literal('self::SEARCHABLE_FIELDS'),
             ]);
         }
@@ -525,25 +546,27 @@ final class CodeEntityCommand
 
         $fs = new Filesystem();
 
-        $relative   = \preg_replace('/^App\\\\/', '', $entityFqcn);
-        $relative   = \str_replace('\\', '/', (string) $relative);
-        $targetPath = 'src/' . $relative . '.php';
+        $relative = \preg_replace('/^App\\\\/', '', $entityFqcn);
+        $relative = \str_replace('\\', '/', (string) $relative);
+        $targetPath = 'src/'.$relative.'.php';
 
         if (\is_file($targetPath) && !$force) {
             $overwrite = $io->confirm(\sprintf('File %s already exists. Overwrite it?', $targetPath), false);
             if (!$overwrite) {
                 $io->warning(\sprintf('Skipped overwriting existing entity: %s', $targetPath));
                 $this->createRepo($repoFqcn, $entityFqcn, $entityName);
+
                 return Command::SUCCESS;
             }
         }
 
         $fs->dumpFile($targetPath, $code);
-        if (!$dto && $repoFqcn !== null) {
+        if (!$dto && null !== $repoFqcn) {
             $this->createRepo($repoFqcn, $entityFqcn, $entityName);
         }
 
         $io->success(\sprintf('Created %s: %s (%s)', $dto ? 'DTO' : 'entity', $entityFqcn, $targetPath));
+
         return Command::SUCCESS;
     }
 
@@ -585,6 +608,7 @@ final class CodeEntityCommand
 
     /**
      * @param array<string,mixed> $rawFieldStats
+     *
      * @return array{0:string,1:array<string,mixed>} [phpType, ormArgs]
      */
     private function determineTypesFromStats(array $rawFieldStats, FieldStats $stats): array
@@ -594,28 +618,28 @@ final class CodeEntityCommand
         $types = $rawFieldStats['types'] ?? [];
         $typesHasArray = \is_array($types) && \in_array('array', $types, true);
 
-        if ($storageHint === 'json' || $typesHasArray) {
+        if ('json' === $storageHint || $typesHasArray) {
             return [
                 '?array',
                 ['type' => new Literal('Types::JSON')],
             ];
         }
 
-        if ($storageHint === 'bool') {
+        if ('bool' === $storageHint) {
             return [
                 '?bool',
                 ['type' => new Literal('Types::BOOLEAN')],
             ];
         }
 
-        if ($storageHint === 'int') {
+        if ('int' === $storageHint) {
             return [
                 '?int',
                 ['type' => new Literal('Types::INTEGER')],
             ];
         }
 
-        if ($storageHint === 'float') {
+        if ('float' === $storageHint) {
             return [
                 '?float',
                 ['type' => new Literal('Types::FLOAT')],
@@ -627,7 +651,7 @@ final class CodeEntityCommand
             $maxLen = $rawFieldStats['stringLengths']['max'] ?? null;
         }
 
-        if ($storageHint === 'text' || (\is_int($maxLen) && $maxLen > 255)) {
+        if ('text' === $storageHint || (\is_int($maxLen) && $maxLen > 255)) {
             return [
                 '?string',
                 ['type' => new Literal('Types::TEXT')],
@@ -648,16 +672,16 @@ final class CodeEntityCommand
     private function createRepo(string $repoFqcn, string $entityFqcn, string $entityName): void
     {
         $pos = \strrpos($repoFqcn, '\\');
-        if ($pos === false) {
+        if (false === $pos) {
             return;
         }
 
         $repoNamespace = \substr($repoFqcn, 0, $pos);
-        $repoClass     = \substr($repoFqcn, $pos + 1);
+        $repoClass = \substr($repoFqcn, $pos + 1);
 
         $relativeRepo = \preg_replace('/^App\\\\/', '', $repoFqcn);
         $relativeRepo = \str_replace('\\', '/', (string) $relativeRepo);
-        $repoFilename = 'src/' . $relativeRepo . '.php';
+        $repoFilename = 'src/'.$relativeRepo.'.php';
 
         if (\file_exists($repoFilename)) {
             return;

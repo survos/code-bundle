@@ -1,9 +1,9 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\CodeBundle\Command;
 
-use OpenAI;
 use Survos\MeiliBundle\Service\IndexNameResolver;
 use Survos\MeiliBundle\Service\MeiliService;
 use Symfony\Component\Console\Attribute\Argument;
@@ -54,6 +54,7 @@ final class CodeTemplatesCommand
 
         if (!$twig && !$liquid && !$ai) {
             $io->warning('Nothing to do: use --twig, --liquid and/or --ai.');
+
             return Command::SUCCESS;
         }
 
@@ -63,20 +64,21 @@ final class CodeTemplatesCommand
         $profilePath ??= sprintf('data/%s.profile.json', $indexName);
         $profilePath = $this->normalizePath($profilePath);
 
-        $profile  = null;
+        $profile = null;
         $settings = null;
-        $config   = null;
-        $index    = null;
+        $config = null;
+        $index = null;
 
         // We only need profile/settings/config when generating from heuristics
         if ($twig || $liquid) {
             if (!is_file($profilePath)) {
                 $io->error(sprintf('Profile file missing: %s. Cannot generate heuristics without a Jsonl profile.', $profilePath));
+
                 return Command::FAILURE;
             }
 
             $profileRaw = file_get_contents($profilePath) ?: '';
-            $profile    = json_decode($profileRaw, true, 512, \JSON_THROW_ON_ERROR);
+            $profile = json_decode($profileRaw, true, 512, \JSON_THROW_ON_ERROR);
 
             $io->section(sprintf('Loading Meilisearch settings for base "%s"...', $indexName));
 
@@ -110,6 +112,7 @@ final class CodeTemplatesCommand
         if ($liquid) {
             if (!is_array($config) || !is_array($profile)) {
                 $io->error('Cannot generate Liquid template without profile and config.');
+
                 return Command::FAILURE;
             }
 
@@ -131,21 +134,24 @@ final class CodeTemplatesCommand
         if ($ai) {
             if (!$this->openaiApiKey) {
                 $io->error('OPENAI_API_KEY is not configured. Cannot use --ai without an API key.');
+
                 return Command::FAILURE;
             }
 
-            if (!class_exists(OpenAI::class)) {
+            if (!class_exists(\OpenAI::class)) {
                 $io->error('openai-php/client is missing. Run: composer require openai-php/client');
+
                 return Command::FAILURE;
             }
 
-            $client    = OpenAI::client($this->openaiApiKey);
+            $client = \OpenAI::client($this->openaiApiKey);
             $modelName = $modelName ?: 'gpt-4o-mini';
 
             // Twig refinement
             if ($twig) {
                 if (!is_file($outputPath)) {
                     $io->error(sprintf('Twig template %s does not exist (generate it first).', $outputPath));
+
                     return Command::FAILURE;
                 }
 
@@ -207,12 +213,13 @@ TXT,
                         'max_output_tokens' => 4096,
                     ]);
                 } catch (\Throwable $e) {
-                    $io->error('Error calling OpenAI for Twig: ' . $e->getMessage());
+                    $io->error('Error calling OpenAI for Twig: '.$e->getMessage());
+
                     return Command::FAILURE;
                 }
 
-                $raw      = $response->outputText;
-                $refined  = $this->stripCodeFences($raw);
+                $raw = $response->outputText;
+                $refined = $this->stripCodeFences($raw);
                 $stitched = $this->stitchCardBody($originalTemplate, $refined);
 
                 $this->filesystem->dumpFile($outputPath, $stitched);
@@ -224,6 +231,7 @@ TXT,
             if ($liquid) {
                 if (!is_file($liquidPath)) {
                     $io->error(sprintf('Liquid template %s does not exist (generate it first with --liquid).', $liquidPath));
+
                     return Command::FAILURE;
                 }
 
@@ -276,11 +284,12 @@ TXT,
                         'max_output_tokens' => 4096,
                     ]);
                 } catch (\Throwable $e) {
-                    $io->error('Error calling OpenAI for Liquid: ' . $e->getMessage());
+                    $io->error('Error calling OpenAI for Liquid: '.$e->getMessage());
+
                     return Command::FAILURE;
                 }
 
-                $rawLiquid     = $responseLiquid->outputText;
+                $rawLiquid = $responseLiquid->outputText;
                 $refinedLiquid = $this->stripCodeFences($rawLiquid);
 
                 $this->filesystem->dumpFile($liquidPath, $refinedLiquid);
@@ -306,7 +315,7 @@ TXT,
      */
     private function resolveIndex(string $baseIndexName, ?string $requestedLocale): array
     {
-        if ($this->meiliService === null || $this->indexNameResolver === null) {
+        if (null === $this->meiliService || null === $this->indexNameResolver) {
             throw new \LogicException('MeiliService and IndexNameResolver are required for resolveIndex. Install survos/meili-bundle.');
         }
 
@@ -316,7 +325,7 @@ TXT,
         // - if caller supplied a locale, treat it as fallbackSource
         // - otherwise, default 'en' (resolver may override via registry metadata / params)
         $fallbackSource = $requestedLocale ?? 'en';
-        $policy         = $this->indexNameResolver->localesFor($baseIndexName, $fallbackSource);
+        $policy = $this->indexNameResolver->localesFor($baseIndexName, $fallbackSource);
 
         // Effective locale for this resolution:
         // - explicit CLI --locale wins
@@ -326,7 +335,7 @@ TXT,
         // Per-base multilingual flag (do NOT use global-isMultilingual here)
         $isMlForBase = $this->indexNameResolver->isMultiLingualFor($baseIndexName, $policy['source']);
 
-        $uid    = $this->indexNameResolver->uidFor($baseIndexName, $effectiveLocale, $isMlForBase);
+        $uid = $this->indexNameResolver->uidFor($baseIndexName, $effectiveLocale, $isMlForBase);
         $client = $this->meiliService->getMeiliClient();
 
         return [$uid, $client->getIndex($uid)];
@@ -334,8 +343,9 @@ TXT,
 
     private function normalizeLocale(?string $locale): ?string
     {
-        $locale = $locale !== null ? trim($locale) : null;
-        return $locale !== '' && $locale !== null ? strtolower($locale) : null;
+        $locale = null !== $locale ? trim($locale) : null;
+
+        return '' !== $locale && null !== $locale ? strtolower($locale) : null;
     }
 
     private function stripCodeFences(string $text): string
@@ -357,18 +367,18 @@ TXT,
 
     private function stitchCardBody(string $original, string $refined): string
     {
-        $marker  = '<div class="card';
+        $marker = '<div class="card';
         $origPos = strpos($original, $marker);
-        $newPos  = strpos($refined,  $marker);
+        $newPos = strpos($refined, $marker);
 
-        if ($origPos === false || $newPos === false) {
+        if (false === $origPos || false === $newPos) {
             return $refined;
         }
 
-        $prefix      = substr($original, 0, $origPos);
-        $refinedCard = substr($refined,  $newPos);
+        $prefix = substr($original, 0, $origPos);
+        $refinedCard = substr($refined, $newPos);
 
-        return rtrim($prefix, "\r\n") . "\n" . ltrim($refinedCard, "\r\n");
+        return rtrim($prefix, "\r\n")."\n".ltrim($refinedCard, "\r\n");
     }
 
     private function isIdLike(string $fieldName): bool
@@ -400,7 +410,7 @@ TXT,
         $camel = $first;
 
         foreach ($parts as $part) {
-            if ($part === '') {
+            if ('' === $part) {
                 continue;
             }
             $camel .= \ucfirst($part);
@@ -423,20 +433,20 @@ TXT,
      */
     private function buildConfigFromProfile(object $index, array $profile, array $settings): array
     {
-        $fields        = $profile['fields'] ?? [];
+        $fields = $profile['fields'] ?? [];
         $pkFromProfile = $profile['pk'] ?? null;
 
         $primaryKey = $index->getPrimaryKey() ?? $pkFromProfile ?? 'id';
 
-        $searchable    = $settings['searchableAttributes'] ?? [];
+        $searchable = $settings['searchableAttributes'] ?? [];
         $rawFilterable = $settings['filterableAttributes'] ?? [];
 
         $profileToMeili = [];
         $meiliToProfile = [];
         foreach ($fields as $profileField => $_meta) {
-            $meiliField                     = $this->profileFieldToMeiliField($profileField);
-            $profileToMeili[$profileField]  = $meiliField;
-            $meiliToProfile[$meiliField]    = $profileField;
+            $meiliField = $this->profileFieldToMeiliField($profileField);
+            $profileToMeili[$profileField] = $meiliField;
+            $meiliToProfile[$meiliField] = $profileField;
         }
 
         $filterable = array_values(array_filter(
@@ -542,7 +552,7 @@ TXT,
             }
         }
 
-        $tagFields    = [];
+        $tagFields = [];
         $tagNameHints = [
             'genres', 'genre',
             'tags', 'tag',
@@ -560,7 +570,7 @@ TXT,
                 continue;
             }
 
-            $meta  = $fields[$profileField] ?? null;
+            $meta = $fields[$profileField] ?? null;
             if (!$meta) {
                 continue;
             }
@@ -568,14 +578,14 @@ TXT,
             $facet = $meta['facetCandidate'] ?? false;
             $lname = strtolower($meiliField);
 
-            $isArrayish    = in_array('array', $types, true);
+            $isArrayish = in_array('array', $types, true);
             $isStringFacet = in_array('string', $types, true) && $facet;
-            $isNameHint    = in_array($lname, $tagNameHints, true);
+            $isNameHint = in_array($lname, $tagNameHints, true);
 
             $distribution = $meta['distribution']['values'] ?? null;
-            $total        = $meta['total'] ?? null;
+            $total = $meta['total'] ?? null;
             if (is_array($distribution) && $total) {
-                if (count($distribution) === 1 && reset($distribution) === $total) {
+                if (1 === count($distribution) && reset($distribution) === $total) {
                     continue;
                 }
             }
@@ -588,17 +598,17 @@ TXT,
             }
         }
 
-        $imageField       = null;
+        $imageField = null;
         $bestProfileField = null;
-        $bestScore        = 0.0;
+        $bestScore = 0.0;
 
         foreach ($fields as $profileField => $meta) {
             $score = 0.0;
 
             $nameLower = strtolower($profileField);
-            $hint      = $meta['storageHint'] ?? null;
+            $hint = $meta['storageHint'] ?? null;
             $imageLike = !empty($meta['imageLike']);
-            $exts      = $meta['imageExtensions'] ?? [];
+            $exts = $meta['imageExtensions'] ?? [];
 
             if ($imageLike) {
                 $score += 10.0;
@@ -617,11 +627,11 @@ TXT,
                 $score += 2.0;
             }
 
-            if ($hint === 'string') {
+            if ('string' === $hint) {
                 $score += 1.0;
             }
 
-            if (is_array($exts) && $exts !== []) {
+            if (is_array($exts) && [] !== $exts) {
                 $score += 1.0;
                 if (in_array('jpg', $exts, true) || in_array('jpeg', $exts, true)) {
                     $score += 0.5;
@@ -629,21 +639,21 @@ TXT,
             }
 
             if ($score > $bestScore) {
-                $bestScore        = $score;
+                $bestScore = $score;
                 $bestProfileField = $profileField;
             }
         }
 
-        if ($bestProfileField !== null) {
+        if (null !== $bestProfileField) {
             $imageField = $profileToMeili[$bestProfileField] ?? $bestProfileField;
         }
 
-        if ($imageField === null) {
+        if (null === $imageField) {
             foreach ($fields as $profileField => $meta) {
                 $key = strtolower($profileField);
                 if (
-                    (str_contains($key, 'image') || str_contains($key, 'thumb') || str_contains($key, 'poster') || str_contains($key, 'cover')) &&
-                    (($meta['storageHint'] ?? '') === 'string')
+                    (str_contains($key, 'image') || str_contains($key, 'thumb') || str_contains($key, 'poster') || str_contains($key, 'cover'))
+                    && (($meta['storageHint'] ?? '') === 'string')
                 ) {
                     $imageField = $profileToMeili[$profileField] ?? $profileField;
                     break;
@@ -653,22 +663,22 @@ TXT,
 
         $labels = [];
         foreach ($fields as $profileField => $_meta) {
-            $meiliField          = $profileToMeili[$profileField] ?? $profileField;
+            $meiliField = $profileToMeili[$profileField] ?? $profileField;
             $labels[$meiliField] = $this->humanizeField($meiliField);
         }
 
         return [
             [
-                'primaryKey'       => $primaryKey,
-                'titleField'       => $titleField,
+                'primaryKey' => $primaryKey,
+                'titleField' => $titleField,
                 'descriptionField' => $descriptionField,
-                'imageField'       => $imageField,
-                'scalarFields'     => $scalarFields,
-                'tagFields'        => $tagFields,
+                'imageField' => $imageField,
+                'scalarFields' => $scalarFields,
+                'tagFields' => $tagFields,
                 'filterableFields' => $filterable,
-                'labels'           => $labels,
-                'maxLen'           => 100,
-                'maxList'          => 3,
+                'labels' => $labels,
+                'maxLen' => 100,
+                'maxList' => 3,
             ],
             $settings,
         ];
@@ -676,7 +686,7 @@ TXT,
 
     private function generateJsTwigFromConfig(array $config, array $settings): string
     {
-        $configJson   = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        $configJson = json_encode($config, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         $settingsJson = json_encode($settings, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         return <<<TWIG
@@ -786,11 +796,11 @@ TWIG;
      */
     private function generateLiquidFromConfig(array $config, array $profile, string $indexName): string
     {
-        $titleField   = $config['titleField']       ?? 'title';
-        $descField    = $config['descriptionField'] ?? null;
-        $scalarFields = $config['scalarFields']     ?? [];
-        $tagFields    = $config['tagFields']        ?? [];
-        $labels       = $config['labels']           ?? [];
+        $titleField = $config['titleField'] ?? 'title';
+        $descField = $config['descriptionField'] ?? null;
+        $scalarFields = $config['scalarFields'] ?? [];
+        $tagFields = $config['tagFields'] ?? [];
+        $labels = $config['labels'] ?? [];
 
         $lines = [];
 
@@ -801,14 +811,14 @@ TWIG;
         $lines[] = '{%- endcomment -%}';
         $lines[] = '';
 
-        $lines[] = '{%- assign title = doc.' . $titleField . ' -%}';
+        $lines[] = '{%- assign title = doc.'.$titleField.' -%}';
         $lines[] = '';
         $lines[] = '# {{ title }}';
         $lines[] = '';
 
         if ($descField) {
-            $lines[] = '{% if doc.' . $descField . ' %}';
-            $lines[] = '{{ doc.' . $descField . ' }}';
+            $lines[] = '{% if doc.'.$descField.' %}';
+            $lines[] = '{{ doc.'.$descField.' }}';
             $lines[] = '{% endif %}';
             $lines[] = '';
         }
@@ -816,13 +826,13 @@ TWIG;
         if (!empty($scalarFields)) {
             $conds = [];
             foreach ($scalarFields as $sf) {
-                $conds[] = 'doc.' . $sf;
+                $conds[] = 'doc.'.$sf;
             }
-            $lines[] = '{% if ' . implode(' or ', $conds) . ' %}';
+            $lines[] = '{% if '.implode(' or ', $conds).' %}';
             $lines[] = '## Details';
             foreach ($scalarFields as $sf) {
                 $label = $labels[$sf] ?? $sf;
-                $lines[] = '{% if doc.' . $sf . ' %}' . $label . ': {{ doc.' . $sf . ' }}{% endif %}';
+                $lines[] = '{% if doc.'.$sf.' %}'.$label.': {{ doc.'.$sf.' }}{% endif %}';
             }
             $lines[] = '{% endif %}';
             $lines[] = '';
@@ -832,21 +842,21 @@ TWIG;
             $label = $labels[$tf] ?? $tf;
             $lower = strtolower($tf);
 
-            $lines[] = '{% if doc.' . $tf . ' %}';
-            $lines[] = '## ' . $label;
+            $lines[] = '{% if doc.'.$tf.' %}';
+            $lines[] = '## '.$label;
 
             if (in_array($lower, ['keywords', 'subject', 'subjects'], true)) {
-                $lines[] = '{% assign values = doc.' . $tf . ' | split: "|" %}';
+                $lines[] = '{% assign values = doc.'.$tf.' | split: "|" %}';
                 $lines[] = '{{ values | join: " | " }}';
             } else {
-                $lines[] = '{{ doc.' . $tf . ' }}';
+                $lines[] = '{{ doc.'.$tf.' }}';
             }
 
             $lines[] = '{% endif %}';
             $lines[] = '';
         }
 
-        return implode("\n", $lines) . "\n";
+        return implode("\n", $lines)."\n";
     }
 
     private function normalizePath(string $path): string
@@ -855,6 +865,6 @@ TWIG;
             return $path;
         }
 
-        return $this->projectDir . '/' . ltrim($path, '/');
+        return $this->projectDir.'/'.ltrim($path, '/');
     }
 }

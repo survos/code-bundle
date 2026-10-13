@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\CodeBundle\Command;
@@ -15,9 +16,6 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use FilesystemIterator;
-use RecursiveDirectoryIterator;
-use RecursiveIteratorIterator;
 
 /**
  * Finds #[Translatable] properties in entities and converts them directly to property hooks.
@@ -27,12 +25,13 @@ final class CodeTranslatableCommand
 {
     public function __construct(
         private readonly DirectEntityTranslatableUpdater $updater,
-        private readonly LoggerInterface                 $logger,
-        private readonly StrEntitiesScaffolder           $scaffolder,
+        private readonly LoggerInterface $logger,
+        private readonly StrEntitiesScaffolder $scaffolder,
         #[Autowire('%kernel.project_dir%')] private readonly string $projectDir,
         #[Autowire(param: 'kernel.default_locale')] private readonly string $defaultLocale = 'en',
         #[Autowire(param: 'kernel.enabled_locales')] private readonly array $enabledLocales = [],
-    ) {}
+    ) {
+    }
 
     public function __invoke(
         SymfonyStyle $io,
@@ -60,6 +59,7 @@ final class CodeTranslatableCommand
         $targets = $this->resolveEntityTargets($path);
         if (!$targets) {
             $io->warning('No entity files detected.');
+
             return 0;
         }
 
@@ -70,17 +70,17 @@ final class CodeTranslatableCommand
             try {
                 $this->processEntityFile($io, $parser, $entityFile, $dryRun, $backup, $statistics);
             } catch (\Exception $e) {
-                $statistics['errors']++;
+                ++$statistics['errors'];
                 $io->error("Failed to process {$this->getRelativePath($entityFile)}: {$e->getMessage()}");
                 $this->logger->error('Entity processing failed', [
                     'file' => $entityFile,
-                    'error' => $e->getMessage()
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
 
-
         $this->displayCompletionSummary($io, $statistics, \count($created));
+
         return $statistics['errors'] > 0 ? 1 : 0;
     }
 
@@ -90,12 +90,12 @@ final class CodeTranslatableCommand
         string $entityFile,
         bool $dryRun,
         bool $backup,
-        array &$statistics
+        array &$statistics,
     ): void {
-        $statistics['processed']++;
+        ++$statistics['processed'];
 
         $code = @file_get_contents($entityFile);
-        if ($code === false) {
+        if (false === $code) {
             throw new \RuntimeException('Cannot read file');
         }
 
@@ -117,6 +117,7 @@ final class CodeTranslatableCommand
         if (empty($translatableFields)) {
             $this->logger->debug('No translatable fields found', ['entity' => $entityFqcn]);
             $io->writeln("📄 <comment>{$this->getRelativePath($entityFile)}</comment> - No translatable fields");
+
             return;
         }
 
@@ -124,18 +125,18 @@ final class CodeTranslatableCommand
         $this->validateSimpleProperties($classNode, $translatableFields, $entityFile);
 
         $io->section($entityFqcn);
-        $io->writeln(" • Found translatable fields: <info>" . implode(', ', $translatableFields) . "</info>");
+        $io->writeln(' • Found translatable fields: <info>'.implode(', ', $translatableFields).'</info>');
 
         if ($dryRun) {
-            $io->writeln(" • <comment>[DRY RUN]</comment> Would convert to property hooks");
+            $io->writeln(' • <comment>[DRY RUN]</comment> Would convert to property hooks');
         } else {
             $updated = $this->updater->updateEntity($entityFile, $translatableFields, $dryRun, $backup);
 
             if ($updated) {
-                $statistics['updated']++;
-                $io->writeln(" • ✅ <info>Converted to property hooks</info>");
+                ++$statistics['updated'];
+                $io->writeln(' • ✅ <info>Converted to property hooks</info>');
             } else {
-                $io->writeln(" • ⚠️  <comment>No changes made</comment>");
+                $io->writeln(' • ⚠️  <comment>No changes made</comment>');
             }
         }
     }
@@ -154,6 +155,7 @@ final class CodeTranslatableCommand
                 $fields[] = $prop->name->toString();
             }
         }
+
         return $fields;
     }
 
@@ -167,11 +169,7 @@ final class CodeTranslatableCommand
             foreach ($stmt->props as $prop) {
                 $name = $prop->name->toString();
                 if (isset($fieldSet[$name]) && !empty($prop->hooks ?? [])) {
-                    throw new \RuntimeException(
-                        "Property '{$name}' already has property hooks. ".
-                        "This command requires simple properties without existing hooks. ".
-                        "File: " . basename($entityFile)
-                    );
+                    throw new \RuntimeException("Property '{$name}' already has property hooks. ".'This command requires simple properties without existing hooks. File: '.basename($entityFile));
                 }
             }
         }
@@ -182,13 +180,14 @@ final class CodeTranslatableCommand
         foreach ($property->attrGroups as $attrGroup) {
             foreach ($attrGroup->attrs as $attr) {
                 $name = $attr->name->toString();
-                if ($name === 'Translatable' ||
-                    $name === 'Survos\\BabelBundle\\Attribute\\Translatable' ||
-                    str_ends_with($name, '\\Translatable')) {
+                if ('Translatable' === $name
+                    || 'Survos\\BabelBundle\\Attribute\\Translatable' === $name
+                    || str_ends_with($name, '\\Translatable')) {
                     return true;
                 }
             }
         }
+
         return false;
     }
 
@@ -221,11 +220,11 @@ final class CodeTranslatableCommand
         $io->text('Default: <info>'.$this->defaultLocale.'</info>');
         $io->text('Enabled: <info>'.($enabled ? implode(', ', $enabled) : '(none)').'</info>');
 
-        if (!$enabled || (count($enabled) === 1 && $enabled[0] === $this->defaultLocale)) {
+        if (!$enabled || (1 === count($enabled) && $enabled[0] === $this->defaultLocale)) {
             $io->warning("Consider configuring 'framework.enabled_locales' for multiple languages.");
-            $io->writeln("Example configuration:");
-            $io->writeln("  framework:");
-            $io->writeln("    default_locale: ".$this->defaultLocale);
+            $io->writeln('Example configuration:');
+            $io->writeln('  framework:');
+            $io->writeln('    default_locale: '.$this->defaultLocale);
             $io->writeln("    enabled_locales: ['".$this->defaultLocale."', 'es', 'de', 'fr']");
         }
     }
@@ -234,14 +233,14 @@ final class CodeTranslatableCommand
     {
         $targets = [];
 
-        if ($path === null) {
+        if (null === $path) {
             $root = $this->projectDir.'/src/Entity';
             if (is_dir($root)) {
-                $it = new RecursiveIteratorIterator(
-                    new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+                $it = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($root, \FilesystemIterator::SKIP_DOTS)
                 );
                 foreach ($it as $file) {
-                    if ($file->isFile() && $file->getExtension() === 'php') {
+                    if ($file->isFile() && 'php' === $file->getExtension()) {
                         if (str_contains($file->getPathname(), '/Translations/')) {
                             continue;
                         }
@@ -251,11 +250,11 @@ final class CodeTranslatableCommand
             }
         } else {
             if (is_dir($path)) {
-                $it = new RecursiveIteratorIterator(
-                    new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS)
+                $it = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS)
                 );
                 foreach ($it as $file) {
-                    if ($file->isFile() && $file->getExtension() === 'php') {
+                    if ($file->isFile() && 'php' === $file->getExtension()) {
                         $targets[] = $file->getPathname();
                     }
                 }
@@ -265,6 +264,7 @@ final class CodeTranslatableCommand
         }
 
         sort($targets);
+
         return $targets;
     }
 

@@ -1,13 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle\Command;
 
-use Nette\PhpGenerator\PhpNamespace;
-use Survos\Bundle\MakerBundle\Service\MakerService;
 use Survos\CodeBundle\Service\GeneratorService;
-
 use Symfony\Bridge\Twig\Attribute\Template;
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\Console\Attribute\Argument;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Attribute\Option;
@@ -16,10 +14,7 @@ use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\Finder\Finder;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Http\Attribute\IsGranted;
+
 use function Symfony\Component\String\u;
 
 // removed until nullable string options are allowed again
@@ -28,46 +23,45 @@ use function Symfony\Component\String\u;
 //
 final class MakeController extends BaseMaker
 {
-//    public function __construct(
-//        private GeneratorService $generatorService,
-//        #[Autowire('%kernel.project_dir%')] private string $projectDir,
-//    )
-//    {
-//    }
+    //    public function __construct(
+    //        private GeneratorService $generatorService,
+    //        #[Autowire('%kernel.project_dir%')] private string $projectDir,
+    //    )
+    //    {
+    //    }
 
     public function __invoke(
-        SymfonyStyle     $io,
+        SymfonyStyle $io,
         #[Argument(description: 'Controller class name, e.g. App')]
-        ?string $name=null,
+        ?string $name = null,
         #[Option(description: 'controller route name (e.g. admin_do_something)', shortcut: 'r')]
         ?string $routeName = null,
         #[Option('method name, default to routeName', shortcut: 'm')]
         ?string $method = null,
 
         #[Option(description: 'make an invokable controller', shortcut: 'inv')] // save i for interactive
-        bool   $invokable = true,
+        bool $invokable = true,
         #[Option(name: 'template', shortcut: 't', description: 'template name with path')]
         ?string $templateName = null,
-        #[Option("from the template library", shortcut: 'f')]
+        #[Option('from the template library', shortcut: 'f')]
         ?string $from = null,
-        #[Option(description:  'secure route with a role')]
+        #[Option(description: 'secure route with a role')]
         string $security = '',
         #[Option(description: 'add a cache attribute', shortcut: 'c')]
         string $cache = '', // @todo: add timeout?
 
         #[Option(description: 'path, defaults to /[routeName]', shortcut: 'p')]
         ?string $routePath = null,
-// @todo: move to make/update:class controller
+        // @todo: move to make/update:class controller
         #[Option(description: 'class route, e.g. /product', shortcut: 'cr')]
         string $classRoute = '',
 
         #[Option(description: 'namespace to use (will determine file location)', shortcut: 'ns')]
         string $namespace = '',
 
-        #[Option(description: "Overwrite the file if it exists")]
-        bool   $force = false
-    ): int
-    {
+        #[Option(description: 'Overwrite the file if it exists')]
+        bool $force = false,
+    ): int {
         if (empty($namespace)) {
             $namespace = 'App\\Controller';
         }
@@ -78,7 +72,7 @@ final class MakeController extends BaseMaker
         if (!u($name)->endsWith('Controller')) {
             $name .= 'Controller';
         }
-        [$class, $ns, $filename]  = $this->getClass($namespace, $name);
+        [$class, $ns, $filename] = $this->getClass($namespace, $name);
 
         // for twig stuff, see https://github.com/zenstruck/twig-service-bundle
         // generate controller method. Ignore if it already exists (@todo: delete first)
@@ -99,20 +93,18 @@ final class MakeController extends BaseMaker
         }
 
         if ($routeName) {
-
             $this->generatorService->addControllerMethod($class,
                 $routeName,
                 $templateName,
                 route: $routePath);
 
-                $finder = new Finder();
-                $templates = [];
-                foreach ($finder->files()->in(__DIR__ . '/../../twig') as $file) {
-                    $description = fgets(fopen($file->getRealPath(), 'r'));
-                    $templates[$file->getFilenameWithoutExtension()] = $description;
-                    $map[$file->getFilenameWithoutExtension()] = $file->getRealPath();
-
-                }
+            $finder = new Finder();
+            $templates = [];
+            foreach ($finder->files()->in(__DIR__.'/../../twig') as $file) {
+                $description = fgets(fopen($file->getRealPath(), 'r'));
+                $templates[$file->getFilenameWithoutExtension()] = $description;
+                $map[$file->getFilenameWithoutExtension()] = $file->getRealPath();
+            }
             if (!$from) {
                 $key = $io->askQuestion(new ChoiceQuestion('template name', $templates));
                 $from = $map[$key];
@@ -131,28 +123,29 @@ final class MakeController extends BaseMaker
 
         // we already have this, because we get the existing methods.
         $path = $this->generatorService->namespaceToPath($namespace, $this->projectDir);
-        $filename = $path . '/';
+        $filename = $path.'/';
         foreach (explode(':', $name) as $part) {
             $filename .= u($part)->title();
         }
         $filename .= '.php';
 
         $io->writeln($ns);
-        file_put_contents($filename, '<?php ' . "\n\n" . $ns);
-//        if (!file_exists($filename) || $force) {
-//        } else {
-//            throw new \Exception("$filename already exists");
-//        }
+        file_put_contents($filename, '<?php '."\n\n".$ns);
+        //        if (!file_exists($filename) || $force) {
+        //        } else {
+        //            throw new \Exception("$filename already exists");
+        //        }
 
         $io->success(sprintf('controller %s generated.', $filename));
+
         return Command::SUCCESS;
     }
 
     private function createTemplate(string $controllerName,
-                                    string $routeName,
-                                    ?string $templateName=null,
-                                    ?string $content = null,
-                                    bool $force = false): ?string
+        string $routeName,
+        ?string $templateName = null,
+        ?string $content = null,
+        bool $force = false): ?string
     {
         $path = null;
         if (empty($templateName)) {
@@ -160,32 +153,29 @@ final class MakeController extends BaseMaker
             $templateName = "$templatePrefix/$routeName";
         }
 
-        //$content must not be empty, otherwise we create an empty file
+        // $content must not be empty, otherwise we create an empty file
         if (empty($content)) {
             $content = "{# template for $controllerName::$routeName #}\n";
         }
 
         if (!u($templateName)->endsWith('.html.twig')) {
-            $templateName .= ".html.twig";
+            $templateName .= '.html.twig';
         }
 
-        $templatePath = 'templates/' . $templateName;
+        $templatePath = 'templates/'.$templateName;
         if (!file_exists($templatePath) || $force) {
             $dir = pathinfo($templatePath, PATHINFO_DIRNAME);
             if (!file_exists($dir)) {
                 mkdir($dir, recursive: true);
             }
             // @todo: get template paths
-//            $fn = __DIR__ . '/../../twig/symfony.html.twig';
-//            assert(file_exists($fn), $fn);
-//            $templateCode = file_get_contents($fn);
+            //            $fn = __DIR__ . '/../../twig/symfony.html.twig';
+            //            assert(file_exists($fn), $fn);
+            //            $templateCode = file_get_contents($fn);
 
-            file_put_contents($path = getcwd() . '/' . $templatePath, $content);
+            file_put_contents($path = getcwd().'/'.$templatePath, $content);
         }
 
         return $path;
-
     }
-
-
 }

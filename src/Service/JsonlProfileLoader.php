@@ -1,9 +1,8 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\CodeBundle\Service;
-
-use RuntimeException;
 
 /**
  * Tiny helper to load the profile array produced by import:convert.
@@ -25,21 +24,21 @@ final class JsonlProfileLoader
     public function load(string $path): array
     {
         if (!\is_file($path)) {
-            throw new RuntimeException(sprintf('Profile file "%s" not found.', $path));
+            throw new \RuntimeException(sprintf('Profile file "%s" not found.', $path));
         }
 
         $raw = \file_get_contents($path);
-        if ($raw === false) {
-            throw new RuntimeException(sprintf('Unable to read profile file "%s".', $path));
+        if (false === $raw) {
+            throw new \RuntimeException(sprintf('Unable to read profile file "%s".', $path));
         }
 
         $data = \json_decode($raw, true);
         if (!\is_array($data)) {
-            throw new RuntimeException(sprintf('Profile file "%s" does not contain valid JSON object.', $path));
+            throw new \RuntimeException(sprintf('Profile file "%s" does not contain valid JSON object.', $path));
         }
 
         if (!isset($data['fields']) || !\is_array($data['fields'])) {
-            throw new RuntimeException(sprintf('Profile file "%s" is missing "fields" key.', $path));
+            throw new \RuntimeException(sprintf('Profile file "%s" is missing "fields" key.', $path));
         }
 
         return $data;

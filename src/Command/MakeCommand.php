@@ -1,8 +1,11 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle\Command;
 
 use Nette\PhpGenerator\Method;
+use Nette\PhpGenerator\PhpNamespace;
 use Nette\PhpGenerator\Type;
 use Survos\CodeBundle\Service\GeneratorService;
 use Symfony\Component\Console\Attribute\Argument;
@@ -11,58 +14,49 @@ use Symfony\Component\Console\Attribute\Option;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Question\Question;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Nette\PhpGenerator\Literal;
-use Nette\PhpGenerator\PhpNamespace;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
-use Symfony\Component\String\Slugger\AsciiSlugger;
-use Symfony\Contracts\Service\ServiceMethodsSubscriberTrait;
-use Symfony\Contracts\Service\ServiceSubscriberInterface;
-use Twig\Environment;
 
 use function Symfony\Component\String\u;
 
 #[AsCommand('survos:make:command', 'Generate a Symfony 7.3 console command')]
 final class MakeCommand
 {
-
     public function __construct(
         private GeneratorService $generatorService,
-//        #[Autowire('%kernel.project_dir%/src/Command')]
+        //        #[Autowire('%kernel.project_dir%/src/Command')]
         private string $projectDir,
-    )
-    {
+    ) {
     }
 
     private function getTypes(): array
     {
-        $types =  [Type::String, Type::Int, Type::Bool, Type::Array];
-        $types = array_merge($types, array_map(fn(string $type) => '?' . $type, $types));
-        return $types;
+        $types = [Type::String, Type::Int, Type::Bool, Type::Array];
+        $types = array_merge($types, array_map(fn (string $type) => '?'.$type, $types));
 
+        return $types;
     }
 
-
     public function __invoke(
-        SymfonyStyle                                                           $io,
+        SymfonyStyle $io,
         #[Argument('command name, e.g. app:do-something')] string $name = '',
-        #[Argument('command description')] ?string                        $description = null, // prompt if null
-        #[Option('overwrite the existing command class')] bool             $force = true,
+        #[Argument('command description')] ?string $description = null, // prompt if null
+        #[Option('overwrite the existing command class')] bool $force = true,
         // @todo: move to make:constructor
-        #[Option(description: 'add the project dir to the constructor')] bool  $projectDir = false,
-        #[Option(description: 'namespace')] string                             $ns = "App\\Command"
-    ): int
-    {
+        #[Option(description: 'add the project dir to the constructor')] bool $projectDir = false,
+        #[Option(description: 'namespace')] string $ns = 'App\\Command',
+    ): int {
         if (!class_exists(PhpNamespace::class)) {
             $io->error("Missing dependency:\n\ncomposer require nette/php-generator");
+
             return Command::FAILURE;
         }
 
         $namespace = new PhpNamespace($ns);
-        $commandDir = $this->projectDir . '/src/Command';
+        $commandDir = $this->projectDir.'/src/Command';
         if (!file_exists($commandDir)) {
             mkdir($commandDir, 0777, true);
         }
-        array_map(fn(string $use) => $namespace->addUse($use), [
+        array_map(fn (string $use) => $namespace->addUse($use), [
             Command::class,
             Option::class,
             Argument::class,
@@ -76,7 +70,7 @@ final class MakeCommand
         }
         $shortName = u($name)->replace('app:', '')->title(true)->replace(':', '')->toString();
         $shortName = str_replace('-', '', $shortName);
-        $commandClass = $shortName . "Command";
+        $commandClass = $shortName.'Command';
 
         if (!$description) {
             $description = $io->ask('one-line command description');
@@ -103,36 +97,34 @@ final class MakeCommand
         $hasOptional = false;
         $body = '';
         if ($projectDir) {
-            $body .=  '$io->writeln("The project directory is " . $this->projectDir);' . "\n\n";
+            $body .= '$io->writeln("The project directory is " . $this->projectDir);'."\n\n";
         }
 
         while ($argument = $this->askForNextArgument($io, $method)) {
-            $body .= $this->addBodyBoilerplate($argument, "Argument");
+            $body .= $this->addBodyBoilerplate($argument, 'Argument');
             $method->addBody($body);
         }
 
         while ($option = $this->askForNextOption($io, $method)) {
-            $body .= $this->addBodyBoilerplate($option, "Option");
+            $body .= $this->addBodyBoilerplate($option, 'Option');
             $method->addBody($body);
         }
         $body = $io->ask('__invoke body', $body);
 
-
-        $body .= '$io->success(self::class . " success.");' . "\nreturn Command::SUCCESS;";
+        $body .= '$io->success(self::class . " success.");'."\nreturn Command::SUCCESS;";
         $method->setBody($body);
-        $filename = $commandDir . '/' . $commandClass . '.php';
-        $io->writeln((string)$namespace);
-        file_put_contents($filename, '<?php' . "\n\n" . $namespace);
-        $io->success(self::class . ' success. ' . $filename);
+        $filename = $commandDir.'/'.$commandClass.'.php';
+        $io->writeln((string) $namespace);
+        file_put_contents($filename, '<?php'."\n\n".$namespace);
+        $io->success(self::class.' success. '.$filename);
 
         return Command::SUCCESS;
     }
 
     private function askForNextArgument(
         SymfonyStyle $io,
-        Method       $method,
-    ): ?string
-    {
+        Method $method,
+    ): ?string {
         $io->writeln('');
         $questionText = 'Enter the argument name (or press <return> to stop adding arguments)';
 
@@ -141,11 +133,12 @@ final class MakeCommand
                 if ($name && $method->hasParameter($name)) {
                     throw new \InvalidArgumentException(sprintf('The "%s" argument already exists.', $name));
                 }
+
                 return $name;
             })
         ) {
             return null;
-        };
+        }
 
         $attributeOptions = [];
         if ($description = $io->ask('Argument description (blank for none)')) {
@@ -158,17 +151,18 @@ final class MakeCommand
             $parameter->setType($fieldType);
         }
         if ($default = $io->ask('Enter default value (blank for none)')) {
-            if ($fieldType === 'int') {
-                $default = (int)$default;
+            if ('int' === $fieldType) {
+                $default = (int) $default;
             }
-            if ($fieldType === 'bool') {
-                $default = (bool)$default;
+            if ('bool' === $fieldType) {
+                $default = (bool) $default;
             }
             $parameter->setDefaultValue($default);
         }
         // these MUST be in the same order as the attribute, e.g. description first
 
         $parameter->addAttribute(Argument::class, array_values($attributeOptions));
+
         return $fieldName;
     }
 
@@ -182,12 +176,12 @@ final class MakeCommand
             $types = $this->getTypes();
 
             if ('?' === $type) {
-                $io->note('Allowed types: ' . implode(',', $types));
+                $io->note('Allowed types: '.implode(',', $types));
                 $io->writeln('');
 
                 $type = null;
             } elseif (!\in_array($type, $types)) {
-                $io->note('Allowed types: ' . implode(',', $types));
+                $io->note('Allowed types: '.implode(',', $types));
                 $io->error(sprintf('Invalid type "%s".', $type));
                 $io->writeln('');
 
@@ -209,10 +203,6 @@ final class MakeCommand
         };
     }
 
-    /**
-     * @param string $option
-     * @return string
-     */
     public function addBodyBoilerplate(string $option, string $text): string
     {
         return sprintf(<<<'PHP'
@@ -225,21 +215,21 @@ PHP, $option, $text, $option, $option);
 
     private function askForNextParameter(SymfonyStyle $io, Method $method, string $questionText): ?string
     {
-        $fieldName = $io->ask($questionText . ' (or press <return> to stop)', null, function (?string $name) use ($method) {
+        $fieldName = $io->ask($questionText.' (or press <return> to stop)', null, function (?string $name) use ($method) {
             if ($name && $method->hasParameter($name)) {
                 throw new \InvalidArgumentException(sprintf('The "%s" argument or option already exists.', $name));
             }
+
             return $name;
         });
+
         return $fieldName;
     }
 
     private function askForNextOption(
         SymfonyStyle $io,
-        Method       $method,
-    ): ?string
-    {
-
+        Method $method,
+    ): ?string {
         if (!$fieldName = $this->askForNextParameter($io, $method, 'Enter the option name')) {
             return null;
         }
@@ -253,7 +243,6 @@ PHP, $option, $text, $option, $option);
             $argumentAttributeValues['shortcut'] = $shortCut;
         }
 
-
         if ($fieldType = $this->askType($io, 'Enter option type (eg. <fg=yellow>string</> by default)')) {
             if ('?' === $fieldType) {
                 $io->note('Allowed types: https://github.com/symfony/symfony/pull/59602#issuecomment-2849377828');
@@ -264,17 +253,18 @@ PHP, $option, $text, $option, $option);
 
         $default = $this->getDefault($fieldType);
         $default = $io->ask('Enter default value (required)', $default, function (?string $default) {
-//            if ($default === 'null') {
-//                $default = null;
-//            }
+            //            if ($default === 'null') {
+            //                $default = null;
+            //            }
         });
-        if ($default === 'null') {
+        if ('null' === $default) {
             $default = null;
         }
 
         $parameter->setDefaultValue($default);
-//        $parameter->addAttribute(Option::class, $argumentAttributeValues);
+        //        $parameter->addAttribute(Option::class, $argumentAttributeValues);
         $parameter->addAttribute(Option::class, array_values($argumentAttributeValues));
+
         return $fieldName;
     }
 }

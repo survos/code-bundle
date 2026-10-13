@@ -1,13 +1,16 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle\Tests;
 
+use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
 use Survos\CodeBundle\SurvosCodeBundle;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\TwigBundle\TwigBundle;
 use Symfony\Component\Config\Loader\LoaderInterface;
 use Symfony\Component\HttpKernel\Kernel as BaseKernel;
-use Doctrine\Bundle\DoctrineBundle\DoctrineBundle;
+
 class TestKernel extends BaseKernel
 {
     public function registerBundles(): iterable
@@ -30,6 +33,6 @@ class TestKernel extends BaseKernel
 
     public function getProjectDir(): string
     {
-        return __DIR__ . '/project-dir';
+        return __DIR__.'/project-dir';
     }
 }

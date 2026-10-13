@@ -1,12 +1,13 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Survos\CodeBundle;
 
 use Survos\CodeBundle\Command\CodeEntityCommand;
 use Survos\CodeBundle\Command\CodeJsTwigCommand;
 use Survos\CodeBundle\Command\CodeTemplatesCommand;
 use Survos\CodeBundle\Command\CodeTranslatableCommand;
-use Survos\CodeBundle\Command\CodeTranslatableTraitCommand;
 use Survos\CodeBundle\Command\MakeCommand;
 use Survos\CodeBundle\Command\MakeConstructor;
 use Survos\CodeBundle\Command\MakeController;
@@ -27,52 +28,47 @@ use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigura
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 
-
 class SurvosCodeBundle extends AbstractBundle
 {
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
-
         $builder->autowire(GeneratorService::class)
             ->setArgument('$doctrine', new Reference('doctrine', ContainerInterface::IGNORE_ON_INVALID_REFERENCE))
             ->setAutoconfigured(true) // bad practice! Better to inject
             ->setPublic(true);
 
         foreach ([TranslatableTraitGenerator::class,
-                     JsonlProfileLoader::class,
-                     DirectEntityTranslatableUpdater::class,
-                     EntityTranslatableUpdater::class,
-                     StrEntitiesScaffolder::class,
-                     MeiliAdminCommand::class,
-                     ProfileResolver::class,
-                     DirectEntityTranslatableUpdater::class] as $class) {
+            JsonlProfileLoader::class,
+            DirectEntityTranslatableUpdater::class,
+            EntityTranslatableUpdater::class,
+            StrEntitiesScaffolder::class,
+            MeiliAdminCommand::class,
+            ProfileResolver::class,
+            DirectEntityTranslatableUpdater::class] as $class) {
             $builder->autowire($class)
                 ->setPublic(true)
                 ->setAutoconfigured(true)
-                ;
+            ;
         }
 
         foreach ([
-//            CodeJsTwigCommand::class,
-                     CodeTemplatesCommand::class, CodeTranslatableCommand::class] as $class) {
+            //            CodeJsTwigCommand::class,
+            CodeTemplatesCommand::class, CodeTranslatableCommand::class] as $class) {
             $builder->autowire($class)
                 ->setPublic(true)
                 ->setAutoconfigured(true)
                 ->addTag('console.command');
         }
 
-        array_map(fn(string $class) => $builder->autowire($class)
+        array_map(fn (string $class) => $builder->autowire($class)
             ->setArgument('$projectDir', '%kernel.project_dir%')
             ->setArgument('$generatorService', new Reference(GeneratorService::class))
-            ->addTag('console.command')
-            , [MakeCommand::class,
+            ->addTag('console.command'), [MakeCommand::class,
                 MakeService::class,
                 CodeEntityCommand::class,
                 MakeController::class,
                 MakeRelation::class,
                 MakeConstructor::class]);
-
-
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -82,5 +78,4 @@ class SurvosCodeBundle extends AbstractBundle
             ->scalarNode('base_layout')->defaultValue('base.html.twig')->end()
             ->end();
     }
-
 }

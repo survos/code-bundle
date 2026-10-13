@@ -1,14 +1,15 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\CodeBundle\Service;
 
-use Nette\PhpGenerator\PhpFile;
-use Nette\PhpGenerator\PsrPrinter;
 use Nette\PhpGenerator\ClassType;
-use Nette\PhpGenerator\Visibility;
 use Nette\PhpGenerator\Literal;
+use Nette\PhpGenerator\PhpFile;
 use Nette\PhpGenerator\PhpNamespace;
+use Nette\PhpGenerator\PsrPrinter;
+use Nette\PhpGenerator\Visibility;
 use PhpParser\Node;
 use PhpParser\Node\Expr;
 use PhpParser\Node\Stmt\Class_;
@@ -23,7 +24,7 @@ use Psr\Log\LoggerInterface;
  * - Preserves non-property members verbatim (methods, consts, traits, etc.)
  * - Copies CLASS-LEVEL attributes (e.g. #[ORM\Entity]) with arguments
  * - Resolves attribute names & interface names via existing use-aliases
- * - Normalizes class TYPES (e.g., Collection/DateTimeImmutable) to short names and adds uses
+ * - Normalizes class TYPES (e.g., Collection/DateTimeImmutable) to short names and adds uses.
  *
  * PhpGenerator constraints:
  *  - Attribute NAMES must be UNPREFIXED (no leading '\'), e.g. 'Doctrine\ORM\Mapping\Column'
@@ -51,22 +52,24 @@ final class DirectEntityTranslatableUpdater
         string $entityPath,
         array $translatableFields,
         bool $dryRun = false,
-        bool $backup = false
+        bool $backup = false,
     ): bool {
         if (!$translatableFields) {
             $this->logger->info('No translatable fields to convert', ['path' => $entityPath]);
+
             return false;
         }
 
         $this->logger->info('Converting entity to use property hooks', [
             'path' => $entityPath,
             'fields' => $translatableFields,
-            'dryRun' => $dryRun
+            'dryRun' => $dryRun,
         ]);
 
         $code = @file_get_contents($entityPath);
-        if ($code === false) {
+        if (false === $code) {
             $this->logger->error('Cannot read entity file', ['path' => $entityPath]);
+
             return false;
         }
 
@@ -77,11 +80,7 @@ final class DirectEntityTranslatableUpdater
                 'path' => $entityPath,
                 'error' => $e->getMessage(),
             ]);
-            throw new \RuntimeException(
-                "Cannot convert entity at {$entityPath}. Error: ".$e->getMessage(),
-                0,
-                $e
-            );
+            throw new \RuntimeException("Cannot convert entity at {$entityPath}. Error: ".$e->getMessage(), 0, $e);
         }
     }
 
@@ -90,7 +89,7 @@ final class DirectEntityTranslatableUpdater
         string $code,
         array $translatableFields,
         bool $dryRun,
-        bool $backup
+        bool $backup,
     ): bool {
         $parser = new ParserFactory()->createForHostVersion();
         $ast = $parser->parse($code);
@@ -125,18 +124,19 @@ final class DirectEntityTranslatableUpdater
         $pp = new PhpPrinter();
         $verbatim = [];
 
-        $fieldSet  = array_flip($translatableFields);
+        $fieldSet = array_flip($translatableFields);
         $converted = [];
-        $propCount = 0; $otherCount = 0;
+        $propCount = 0;
+        $otherCount = 0;
 
         foreach ($classNode->stmts as $stmt) {
             if ($stmt instanceof Property) {
-                $propCount++;
+                ++$propCount;
                 $this->processProperty($class, $stmt, $fieldSet, $converted);
             } else {
-                $otherCount++;
+                ++$otherCount;
                 $snippet = $pp->prettyPrint([$stmt]);
-                if ($snippet !== '') {
+                if ('' !== $snippet) {
                     $verbatim[] = $snippet;
                 }
             }
@@ -144,17 +144,18 @@ final class DirectEntityTranslatableUpdater
 
         $this->logger->debug('Members summary', [
             'properties' => $propCount,
-            'others'     => $otherCount,
+            'others' => $otherCount,
         ]);
 
         if (!$converted) {
             $this->logger->info('No translatable properties found to convert', ['path' => $entityPath]);
+
             return false;
         }
 
         $this->logger->info('Converted properties to hooks', [
             'path' => $entityPath,
-            'converted' => $converted
+            'converted' => $converted,
         ]);
 
         $newCode = $this->printer->printFile($file);
@@ -172,10 +173,11 @@ final class DirectEntityTranslatableUpdater
         ClassType $class,
         Property $property,
         array $fieldSet,
-        array &$converted
+        array &$converted,
     ): void {
         if (!$property->isPublic()) {
             $this->copyPropertyToClass($class, $property);
+
             return;
         }
 
@@ -203,9 +205,9 @@ final class DirectEntityTranslatableUpdater
         }
     }
 
-    private function createTranslatableHook(ClassType $class, Property $originalProperty, \PhpParser\Node\Stmt\PropertyProperty $prop): void
+    private function createTranslatableHook(ClassType $class, Property $originalProperty, Node\Stmt\PropertyProperty $prop): void
     {
-        $fieldName   = $prop->name->toString();
+        $fieldName = $prop->name->toString();
         $backingName = $fieldName.'Backing';
 
         // Backing: protected ?string with Column(type: Types::TEXT, nullable: true)
@@ -221,7 +223,7 @@ final class DirectEntityTranslatableUpdater
         $this->ensureTypesImport();
 
         $backing->addAttribute(ltrim(\Doctrine\ORM\Mapping\Column::class, '\\'), [
-            'type'     => new Literal('Types::TEXT'),
+            'type' => new Literal('Types::TEXT'),
             'nullable' => true,
         ]);
 
@@ -242,7 +244,7 @@ final class DirectEntityTranslatableUpdater
             ->setBody('$this->? = $value;', [$backingName]);
 
         $this->logger->debug('Created translatable hook', [
-            'field'   => $fieldName,
+            'field' => $fieldName,
             'backing' => $backingName,
         ]);
     }
@@ -288,13 +290,15 @@ final class DirectEntityTranslatableUpdater
                 }
             }
         }
+
         return false;
     }
 
     private function isColumnAttr(string $name): bool
     {
         $n = ltrim($name, '\\');
-        return $n === 'Column'
+
+        return 'Column' === $n
             || str_ends_with($n, '\\Column')
             || str_contains($n, 'ORM\\Column')
             || str_contains($n, 'Doctrine\\ORM\\Mapping\\Column');
@@ -303,7 +307,8 @@ final class DirectEntityTranslatableUpdater
     private function isTranslatableAttr(string $name): bool
     {
         $n = ltrim($name, '\\');
-        return $n === 'Translatable'
+
+        return 'Translatable' === $n
             || str_ends_with($n, '\\Translatable')
             || str_contains($n, 'Survos\\BabelBundle\\Attribute\\Translatable');
     }
@@ -313,7 +318,9 @@ final class DirectEntityTranslatableUpdater
      */
     private function resolveNameUsingAliases(string $name): string
     {
-        if ($name === '') return $name;
+        if ('' === $name) {
+            return $name;
+        }
 
         $trim = ltrim($name, '\\');
 
@@ -345,21 +352,35 @@ final class DirectEntityTranslatableUpdater
                 $out[] = $value;
             }
         }
+
         return $out;
     }
 
     private function exprToPhpGenValue(Expr $expr): mixed
     {
-        if ($expr instanceof Node\Scalar\String_)   return $expr->value;
-        if ($expr instanceof Node\Scalar\LNumber)   return $expr->value;
-        if ($expr instanceof Node\Scalar\DNumber)   return $expr->value;
+        if ($expr instanceof Node\Scalar\String_) {
+            return $expr->value;
+        }
+        if ($expr instanceof Node\Scalar\LNumber) {
+            return $expr->value;
+        }
+        if ($expr instanceof Node\Scalar\DNumber) {
+            return $expr->value;
+        }
 
         if ($expr instanceof Expr\ConstFetch) {
             $name = $expr->name->toString();
             $lower = strtolower($name);
-            if ($lower === 'true')  return true;
-            if ($lower === 'false') return false;
-            if ($lower === 'null')  return null;
+            if ('true' === $lower) {
+                return true;
+            }
+            if ('false' === $lower) {
+                return false;
+            }
+            if ('null' === $lower) {
+                return null;
+            }
+
             return new Literal($this->qualifyNameForExpr($name));
         }
 
@@ -367,17 +388,25 @@ final class DirectEntityTranslatableUpdater
             $className = $this->resolveNameUsingAliases($expr->class->toString()); // unprefixed
             $constName = $expr->name->toString();
             $prefix = str_contains($className, '\\') ? '\\' : '';
+
             return new Literal($prefix.$className.'::'.$constName);
         }
 
         if ($expr instanceof Expr\Array_) {
             $arr = [];
             foreach ($expr->items as $item) {
-                if (!$item) continue;
+                if (!$item) {
+                    continue;
+                }
                 $k = $item->key ? $this->exprToPhpGenValue($item->key) : null;
                 $v = $this->exprToPhpGenValue($item->value);
-                if ($k === null) { $arr[] = $v; } else { $arr[$k] = $v; }
+                if (null === $k) {
+                    $arr[] = $v;
+                } else {
+                    $arr[$k] = $v;
+                }
             }
+
             return $arr;
         }
 
@@ -391,6 +420,7 @@ final class DirectEntityTranslatableUpdater
         if ($expr instanceof Expr\Name || $expr instanceof Node\Name) {
             $name = $this->resolveNameUsingAliases($expr->toString());
             $prefix = str_contains($name, '\\') ? '\\' : '';
+
             return new Literal($prefix.$name);
         }
 
@@ -433,7 +463,7 @@ final class DirectEntityTranslatableUpdater
         }
 
         foreach ($classNode->implements as $interface) {
-            $name     = $interface->toString();
+            $name = $interface->toString();
             $resolved = $this->resolveNameUsingAliases($name); // unprefixed
 
             // Prefer short name and ensure 'use' if we know the FQCN
@@ -444,7 +474,7 @@ final class DirectEntityTranslatableUpdater
                 $class->addImplement($shortName);
             } else {
                 // heuristic: common interface without namespace — add Survos contract use
-                if ($short === 'TranslatableResolvedInterface') {
+                if ('TranslatableResolvedInterface' === $short) {
                     $this->safeAddUse($ns, 'Survos\\BabelBundle\\Contract\\BabelHooksInterface', null);
                 }
                 $class->addImplement($short);
@@ -459,14 +489,14 @@ final class DirectEntityTranslatableUpdater
                 $line = trim($line);
 
                 // skip stale trait import
-                if ($line === 'App\\Entity\\Translations\\ArticleTranslationsTrait') {
+                if ('App\\Entity\\Translations\\ArticleTranslationsTrait' === $line) {
                     continue;
                 }
 
                 $fqn = $line;
                 $alias = null;
 
-                if (stripos($line, ' as ') !== false) {
+                if (false !== stripos($line, ' as ')) {
                     [$fqn, $alias] = array_map('trim', explode(' as ', $line, 2));
                 } else {
                     $alias = substr($fqn, strrpos($fqn, '\\') + 1);
@@ -502,7 +532,7 @@ final class DirectEntityTranslatableUpdater
             // Type (nullable/simple). Normalize class types to short names and add uses.
             if ($property->type) {
                 $type = $this->stringifyType($property->type);
-                if ($type !== null) {
+                if (null !== $type) {
                     $gp->setType($type);
                 }
             }
@@ -530,6 +560,7 @@ final class DirectEntityTranslatableUpdater
         // NullableType like ?string / ?Collection / ?Category / ?DateTimeImmutable
         if ($type instanceof Node\NullableType) {
             $inner = $this->stringifyType($type->type);
+
             return $inner ? '?'.$inner : null;
         }
 
@@ -545,18 +576,20 @@ final class DirectEntityTranslatableUpdater
             $resolved = $this->resolveNameUsingAliases($raw);
 
             // Doctrine Collection helper: if short "Collection", ensure use is present
-            if ($resolved === 'Collection') {
+            if ('Collection' === $resolved) {
                 if ($this->currentNs) {
                     $this->safeAddUse($this->currentNs, 'Doctrine\\Common\\Collections\\Collection', null);
                 }
+
                 return 'Collection';
             }
 
             // Global DateTime* helpers: add use for core classes
-            if (in_array($resolved, ['DateTimeImmutable','DateTimeInterface','DateTime'], true)) {
+            if (in_array($resolved, ['DateTimeImmutable', 'DateTimeInterface', 'DateTime'], true)) {
                 if ($this->currentNs) {
                     $this->safeAddUse($this->currentNs, '\\'.$resolved, null);
                 }
+
                 return $resolved;
             }
 
@@ -566,6 +599,7 @@ final class DirectEntityTranslatableUpdater
                 if ($this->currentNs) {
                     $this->safeAddUse($this->currentNs, $resolved, null);
                 }
+
                 return $short;
             }
 
@@ -589,8 +623,9 @@ final class DirectEntityTranslatableUpdater
         if ($dryRun) {
             $this->logger->info('Dry run - would write updated entity', [
                 'path' => $entityPath,
-                'size' => strlen($newCode)
+                'size' => strlen($newCode),
             ]);
+
             return true;
         }
 
@@ -602,7 +637,7 @@ final class DirectEntityTranslatableUpdater
 
         $this->logger->info('Entity updated successfully', [
             'path' => $entityPath,
-            'size' => strlen($newCode)
+            'size' => strlen($newCode),
         ]);
 
         return true;
@@ -613,7 +648,7 @@ final class DirectEntityTranslatableUpdater
      */
     private function ensureTypesImport(): void
     {
-        if ($this->currentNs === null) {
+        if (null === $this->currentNs) {
             return;
         }
         // Add the import if it isn't already present (no alias, treat as default short name "Types")
@@ -645,7 +680,7 @@ final class DirectEntityTranslatableUpdater
         }
 
         // 6) Ensure DateTime* imports when used (if not already imported)
-        foreach (['DateTimeImmutable','DateTimeInterface','DateTime'] as $dt) {
+        foreach (['DateTimeImmutable', 'DateTimeInterface', 'DateTime'] as $dt) {
             if (preg_match('/\b'.$dt.'\b/', $code) && !preg_match('/^use\s+\\\\?'.$dt.';/m', $code)) {
                 $code = preg_replace('/(\nnamespace\s+[^\n]+;\n)/', "$1\nuse \\\\{$dt};\n", $code, 1);
             }
@@ -671,7 +706,7 @@ final class DirectEntityTranslatableUpdater
         $fqn = ltrim($fqn, '\\');
 
         // Skip stale trait import explicitly
-        if ($fqn === 'App\\Entity\\Translations\\ArticleTranslationsTrait') {
+        if ('App\\Entity\\Translations\\ArticleTranslationsTrait' === $fqn) {
             return;
         }
 
@@ -679,12 +714,13 @@ final class DirectEntityTranslatableUpdater
             if ($usedFqn === $fqn) {
                 return; // already present
             }
-            if ($alias !== null && $usedAlias === $alias && $usedFqn !== $fqn) {
+            if (null !== $alias && $usedAlias === $alias && $usedFqn !== $fqn) {
                 $this->logger->debug('Skipping use due to alias collision', [
                     'alias' => $alias,
                     'existing' => $usedFqn,
                     'wanted' => $fqn,
                 ]);
+
                 return;
             }
         }

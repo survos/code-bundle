@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\CodeBundle\Service;
@@ -47,18 +48,7 @@ final class ProfileResolver
         }
 
         // 3) Unsupported formats — enforce the pipeline
-        throw new \RuntimeException(
-            sprintf(
-                "Unsupported file '%s'.\n".
-                "CodeBundle only accepts:\n".
-                "  • .profile.json (pre-analyzed)\n".
-                "  • .jsonl (will be analyzed)\n\n".
-                "To use CSV or JSON, run:\n".
-                "  bin/console import:convert %s",
-                $path,
-                $path
-            )
-        );
+        throw new \RuntimeException(sprintf("Unsupported file '%s'.\nCodeBundle only accepts:\n  • .profile.json (pre-analyzed)\n  • .jsonl (will be analyzed)\n\nTo use CSV or JSON, run:\n".'  bin/console import:convert %s', $path, $path));
     }
 
     /**
@@ -67,7 +57,7 @@ final class ProfileResolver
     private function loadExistingProfile(string $path): array
     {
         $raw = \file_get_contents($path);
-        if ($raw === false) {
+        if (false === $raw) {
             throw new \RuntimeException(sprintf('Unable to read profile file "%s".', $path));
         }
 
@@ -77,11 +67,11 @@ final class ProfileResolver
         }
 
         return [
-            'input'       => $data['input']       ?? $path,
-            'output'      => $data['output']      ?? null,
+            'input' => $data['input'] ?? $path,
+            'output' => $data['output'] ?? null,
             'recordCount' => $data['recordCount'] ?? 0,
-            'tags'        => $data['tags']        ?? [],
-            'fields'      => $data['fields'],
+            'tags' => $data['tags'] ?? [],
+            'fields' => $data['fields'],
         ];
     }
 
@@ -95,12 +85,12 @@ final class ProfileResolver
         if ($io) {
             $io->section(sprintf('Profiling JSONL file %s', $path));
         }
-        if ($this->profiler === null) {
+        if (null === $this->profiler) {
             throw new \RuntimeException('SqlProfiler is unavailable — require survos/jsonl-bundle.');
         }
 
         $result = $this->profiler->profile($path);
-        $fieldStats = (new SidecarDb($path . '.db'))->loadFieldStats();
+        $fieldStats = (new SidecarDb($path.'.db'))->loadFieldStats();
 
         return LegacyProfile::full($path, $result->rows, $fieldStats);
     }

@@ -1,4 +1,5 @@
 <?php
+
 declare(strict_types=1);
 
 namespace Survos\CodeBundle\Service;
@@ -15,7 +16,9 @@ use Psr\Log\LoggerInterface;
 
 final class EntityTranslatableUpdater
 {
-    public function __construct(private readonly LoggerInterface $logger) {}
+    public function __construct(private readonly LoggerInterface $logger)
+    {
+    }
 
     /**
      * Ensure the entity uses the generated trait (exactly once)
@@ -30,50 +33,56 @@ final class EntityTranslatableUpdater
         array $fieldNames,
         bool $hasTranslatables,
         bool $dryRun = false,
-        bool $backup = false
+        bool $backup = false,
     ): bool {
         $this->logger->info('Updater: begin', compact(
-            'entityPath','entityFqcn','traitFqcn','fieldNames','hasTranslatables','dryRun','backup'
+            'entityPath', 'entityFqcn', 'traitFqcn', 'fieldNames', 'hasTranslatables', 'dryRun', 'backup'
         ));
 
         $code = @file_get_contents($entityPath);
-        if ($code === false) {
+        if (false === $code) {
             $this->logger->warning('Updater: unreadable file', ['file' => $entityPath]);
+
             return false;
         }
 
         $parser = (new ParserFactory())->createForHostVersion();
-        $ast    = $parser->parse($code);
+        $ast = $parser->parse($code);
         if (!$ast) {
             $this->logger->warning('Updater: unparsable entity', ['file' => $entityPath]);
+
             return false;
         }
 
         // Find namespace + class
         $nsNode = null;
-        $class  = null;
+        $class = null;
         $entityNs = null;
 
         foreach ($ast as $stmt) {
             if ($stmt instanceof Namespace_) {
-                $nsNode   = $stmt;
+                $nsNode = $stmt;
                 $entityNs = $stmt->name?->toString() ?? '';
                 foreach ($stmt->stmts as $s) {
-                    if ($s instanceof Class_) { $class = $s; break 2; }
+                    if ($s instanceof Class_) {
+                        $class = $s;
+                        break 2;
+                    }
                 }
             }
         }
         if (!$class || !$nsNode) {
             $this->logger->warning('Updater: no class found', ['file' => $entityPath]);
+
             return false;
         }
 
         $rel = null;
-        if ($entityNs !== '' && str_starts_with($traitFqcn, $entityNs.'\\')) {
+        if ('' !== $entityNs && str_starts_with($traitFqcn, $entityNs.'\\')) {
             $rel = substr($traitFqcn, strlen($entityNs.'\\'));
         }
         $traitNameNode = $rel ? new Name($rel) : new FullyQualified($traitFqcn);
-        $traitNameStr  = ltrim($traitNameNode->toString(), '\\');
+        $traitNameStr = ltrim($traitNameNode->toString(), '\\');
 
         $changed = false;
 
@@ -89,14 +98,16 @@ final class EntityTranslatableUpdater
 
         if (!$changed) {
             $this->logger->info('Updater: no changes needed');
+
             return false;
         }
 
-        $pp      = new PrettyPrinter();
+        $pp = new PrettyPrinter();
         $newCode = $pp->prettyPrintFile($ast);
 
         if ($dryRun) {
             $this->logger->info('Updater: dry-run; not writing changes', ['file' => $entityPath]);
+
             return false;
         }
 
@@ -106,6 +117,7 @@ final class EntityTranslatableUpdater
 
         file_put_contents($entityPath, $newCode);
         $this->logger->info('Updater: file updated', ['file' => $entityPath, 'bytes' => strlen($newCode)]);
+
         return true;
     }
 
@@ -117,11 +129,13 @@ final class EntityTranslatableUpdater
      */
     private function removeConvertedPublicProps(Class_ $class, array $fieldNames): bool
     {
-        if ($fieldNames === []) return false;
+        if ([] === $fieldNames) {
+            return false;
+        }
 
         $fieldSet = array_fill_keys($fieldNames, true);
-        $changed  = false;
-        $newBody  = [];
+        $changed = false;
+        $newBody = [];
         $removedNames = [];
 
         foreach ($class->stmts as $stmt) {
@@ -147,7 +161,7 @@ final class EntityTranslatableUpdater
 
             $changed = true;
 
-            if ($keepProps === []) {
+            if ([] === $keepProps) {
                 // remove whole declaration
                 continue;
             }
@@ -183,7 +197,9 @@ final class EntityTranslatableUpdater
 
         // Already present?
         foreach ($class->stmts as $stmt) {
-            if (!$stmt instanceof TraitUse) continue;
+            if (!$stmt instanceof TraitUse) {
+                continue;
+            }
             foreach ($stmt->traits as $tn) {
                 if (\in_array($this->normalizeName($tn->toString()), $targetNames, true)) {
                     return false;
@@ -195,12 +211,14 @@ final class EntityTranslatableUpdater
         foreach ($class->stmts as $stmt) {
             if ($stmt instanceof TraitUse) {
                 $stmt->traits[] = $traitNameNode;
+
                 return true;
             }
         }
 
         // Otherwise insert at top
         array_unshift($class->stmts, new TraitUse([$traitNameNode]));
+
         return true;
     }
 
@@ -209,6 +227,7 @@ final class EntityTranslatableUpdater
     {
         $nodeStr = $this->normalizeName($node->toString());
         $fqcnStr = $this->normalizeName($fqcn);
+
         return array_values(array_unique([
             $nodeStr, $fqcnStr, ltrim('\\'.$nodeStr, '\\'), ltrim('\\'.$fqcnStr, '\\'),
         ]));
